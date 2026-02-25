@@ -2,6 +2,7 @@ import type { FetchGoRequestConfig, FetchGoResponse, RetryConfig } from '../type
 import { FetchGoError, ERR_NETWORK, ERR_TIMEOUT, ERR_CANCELED, ERR_BAD_REQUEST, ERR_BAD_RESPONSE } from '../error/FetchGoError.js';
 import { buildURL } from '../helpers/buildURL.js';
 import { normalizeHeaders, isPlainObject, isFormData, isURLSearchParams, isBlob, isArrayBuffer, isStream, getCookie, objectToFormData, objectToURLSearchParams } from '../helpers/utils.js';
+import { httpAdapter } from '../adapters/http.js';
 
 const DEFAULT_RETRY: RetryConfig = {
     retries: 0,
@@ -89,6 +90,7 @@ async function parseResponse(
     response: Response,
     responseType?: string
 ): Promise<unknown> {
+    if (responseType === 'stream') return response.body;
     if (responseType) {
         switch (responseType) {
             case 'json': return response.json();
@@ -219,15 +221,49 @@ async function executeFetch(
     const { signal, cleanup } = buildAbortSignal(config);
 
     const method = (config.method || 'GET').toUpperCase();
+    const useManualRedirect = config.maxRedirects !== undefined;
     const init: RequestInit = {
         method,
         headers,
         signal,
+        redirect: useManualRedirect ? 'manual' : (config.redirect || 'follow'),
         ...config.fetchOptions,
     };
 
-    if (preparedBody !== undefined && !['GET', 'HEAD'].includes(method)) {
-        init.body = preparedBody;
+    let finalBody = preparedBody;
+    if (finalBody !== undefined && !['GET', 'HEAD'].includes(method)) {
+        if (config.onUploadProgress && finalBody instanceof Blob) {
+            const blob = finalBody;
+            const totalSize = blob.size;
+            let uploaded = 0;
+            const startTime = Date.now();
+            const reader = blob.stream().getReader();
+
+            finalBody = new ReadableStream({
+                async pull(controller) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        controller.close();
+                        return;
+                    }
+                    uploaded += value.byteLength;
+                    const elapsed = (Date.now() - startTime) / 1000;
+                    const rate = elapsed > 0 ? uploaded / elapsed : 0;
+                    config.onUploadProgress!({
+                        loaded: uploaded,
+                        total: totalSize,
+                        progress: totalSize > 0 ? uploaded / totalSize : undefined,
+                        bytes: value.byteLength,
+                        rate,
+                        estimated: rate > 0 ? (totalSize - uploaded) / rate : undefined,
+                        upload: true,
+                    });
+                    controller.enqueue(value);
+                },
+            });
+            (init as Record<string, unknown>).duplex = 'half';
+        }
+        init.body = finalBody;
     }
 
     if (config.withCredentials) {
@@ -235,17 +271,42 @@ async function executeFetch(
     }
     if (config.mode) init.mode = config.mode;
     if (config.cache) init.cache = config.cache;
-    if (config.redirect) init.redirect = config.redirect;
     if (config.referrerPolicy) init.referrerPolicy = config.referrerPolicy;
     if (config.integrity) init.integrity = config.integrity;
     if (config.keepalive !== undefined) init.keepalive = config.keepalive;
 
     let rawResponse: Response;
+    const maxRedirects = config.maxRedirects ?? 21;
+    let redirectCount = 0;
+    let currentUrl = url;
+    let currentInit = init;
 
     try {
-        rawResponse = await fetch(url, init);
+        rawResponse = await fetch(currentUrl, currentInit);
+
+        while (useManualRedirect && [301, 302, 303, 307, 308].includes(rawResponse.status)) {
+            redirectCount++;
+            if (redirectCount > maxRedirects) {
+                cleanup();
+                throw new FetchGoError(
+                    `Maximum redirects (${maxRedirects}) exceeded`,
+                    ERR_BAD_REQUEST,
+                    config
+                );
+            }
+            const location = rawResponse.headers.get('location');
+            if (!location) break;
+
+            currentUrl = new URL(location, currentUrl).href;
+            if ([301, 302, 303].includes(rawResponse.status)) {
+                currentInit = { ...currentInit, method: 'GET', body: undefined };
+            }
+            rawResponse = await fetch(currentUrl, currentInit);
+        }
     } catch (error) {
         cleanup();
+
+        if (error instanceof FetchGoError) throw error;
 
         if (error instanceof DOMException) {
             if (error.name === 'AbortError') {
@@ -275,10 +336,70 @@ async function executeFetch(
     }
 
     let data: unknown;
-    try {
-        data = await parseResponse(rawResponse, config.responseType);
-    } catch {
-        data = null;
+
+    if (config.onDownloadProgress && rawResponse.body) {
+        const reader = rawResponse.body.getReader();
+        const total = parseInt(rawResponse.headers.get('content-length') || '0', 10) || undefined;
+        const chunks: Uint8Array[] = [];
+        let loaded = 0;
+        const startTime = Date.now();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            chunks.push(value);
+            const bytes = value.byteLength;
+            loaded += bytes;
+
+            if (config.maxContentLength && loaded > config.maxContentLength) {
+                reader.cancel();
+                cleanup();
+                throw new FetchGoError(
+                    `Response size (${loaded}) exceeds maxContentLength (${config.maxContentLength})`,
+                    ERR_BAD_RESPONSE,
+                    config
+                );
+            }
+
+            const elapsed = (Date.now() - startTime) / 1000;
+            const rate = elapsed > 0 ? loaded / elapsed : 0;
+            config.onDownloadProgress({
+                loaded,
+                total,
+                progress: total ? loaded / total : undefined,
+                bytes,
+                rate,
+                estimated: total && rate > 0 ? (total - loaded) / rate : undefined,
+                download: true,
+            });
+        }
+
+        const combined = new Uint8Array(loaded);
+        let offset = 0;
+        for (const chunk of chunks) {
+            combined.set(chunk, offset);
+            offset += chunk.byteLength;
+        }
+
+
+        const reconstructedResponse = new Response(combined, {
+            status: rawResponse.status,
+            statusText: rawResponse.statusText,
+            headers: rawResponse.headers,
+        });
+
+        try {
+            data = await parseResponse(reconstructedResponse, config.responseType);
+        } catch {
+            data = new TextDecoder().decode(combined);
+        }
+    } else {
+        try {
+            data = await parseResponse(rawResponse, config.responseType);
+        } catch {
+            data = null;
+        }
     }
 
     cleanup();
@@ -311,17 +432,27 @@ async function executeFetch(
     return response;
 }
 
+function selectAdapter(config: FetchGoRequestConfig): (config: FetchGoRequestConfig) => Promise<FetchGoResponse> {
+    if (config.adapter) {
+        if (typeof config.adapter === 'function') return config.adapter;
+        if (config.adapter === 'http') return httpAdapter;
+        return executeFetch;
+    }
+    return executeFetch;
+}
+
 export async function dispatchRequest(
     config: FetchGoRequestConfig
 ): Promise<FetchGoResponse> {
     const retryConfig = normalizeRetryConfig(config.retry);
     const method = (config.method || 'GET').toUpperCase();
+    const adapter = selectAdapter(config);
 
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= retryConfig.retries; attempt++) {
         try {
-            return await executeFetch(config);
+            return await adapter(config);
         } catch (error) {
             lastError = error;
 

@@ -24,6 +24,19 @@ export interface RetryConfig {
     retryCondition?: (error: unknown) => boolean;
 }
 
+export interface FetchGoProgressEvent {
+    loaded: number;
+    total?: number;
+    progress?: number;
+    bytes: number;
+    estimated?: number;
+    rate?: number;
+    upload?: boolean;
+    download?: boolean;
+}
+
+export type Adapter = 'fetch' | 'http' | ((config: FetchGoRequestConfig) => Promise<FetchGoResponse>);
+
 export interface FetchGoRequestConfig<D = unknown> {
     baseURL?: string;
     url?: string;
@@ -34,7 +47,7 @@ export interface FetchGoRequestConfig<D = unknown> {
     data?: D;
     timeout?: number;
     signal?: AbortSignal;
-    responseType?: 'json' | 'text' | 'blob' | 'arraybuffer' | 'formdata';
+    responseType?: 'json' | 'text' | 'blob' | 'arraybuffer' | 'formdata' | 'stream';
     withCredentials?: boolean;
     retry?: Partial<RetryConfig> | number | boolean;
     validateStatus?: (status: number) => boolean;
@@ -50,6 +63,12 @@ export interface FetchGoRequestConfig<D = unknown> {
     xsrfCookieName?: string;
     xsrfHeaderName?: string;
     formSerializer?: 'formdata' | 'urlencoded';
+    maxRedirects?: number;
+    onUploadProgress?: (progressEvent: FetchGoProgressEvent) => void;
+    onDownloadProgress?: (progressEvent: FetchGoProgressEvent) => void;
+    maxContentLength?: number;
+    maxBodyLength?: number;
+    adapter?: Adapter;
 }
 
 export interface FetchGoResponse<T = unknown> {

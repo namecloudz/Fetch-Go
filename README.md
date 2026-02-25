@@ -198,9 +198,9 @@ const { data } = await api.get('/users');
 | Axios | Fetch-Go |
 |-------|----------|
 | `axios.CancelToken` (deprecated) | Use native `AbortController` |
-| `onUploadProgress` | Not supported (use `fetch` events) |
-| `maxRedirects` | Use `redirect: 'manual'` |
-| Node.js `http` adapter | Browser-only (uses `fetch`) |
+| Node.js `http` adapter (default) | Use `adapter: 'http'` option |
+| `maxRedirects` (number) | `maxRedirects` (identical API) |
+| `onUploadProgress` | `onUploadProgress` (stream-based) |
 
 ## API Reference
 
@@ -233,6 +233,12 @@ const { data } = await api.get('/users');
   formSerializer: 'formdata', // 'urlencoded'
   xsrfCookieName: 'XSRF-TOKEN',
   xsrfHeaderName: 'X-XSRF-TOKEN',
+  maxRedirects: 5,
+  maxContentLength: 10 * 1024 * 1024,
+  maxBodyLength: 10 * 1024 * 1024,
+  onUploadProgress: (event) => console.log(event.progress),
+  onDownloadProgress: (event) => console.log(event.progress),
+  adapter: 'fetch', // 'http' | custom function
   transformRequest: [(data, headers) => { /* ... */ return data }],
   transformResponse: [(data) => { /* ... */ return data }],
   // Pass-through fetch options
