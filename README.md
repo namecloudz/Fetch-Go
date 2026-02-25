@@ -3,9 +3,9 @@
 > Lightweight, Axios-compatible HTTP client built on native `fetch()` with **HTTP/2 support**. **~6KB gzipped.**
 
 [![npm](https://img.shields.io/npm/v/fetch-go)](https://www.npmjs.com/package/fetch-go)
-[![Bundle Size](https://img.shields.io/badge/gzip-~6KB-brightgreen)](https://github.com/user/fetch-go)
-[![TypeScript](https://img.shields.io/badge/TypeScript-first-blue)](https://github.com/user/fetch-go)
-[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-green)](https://github.com/user/fetch-go)
+[![Bundle Size](https://img.shields.io/badge/gzip-~6KB-brightgreen)](https://github.com/namecloudz/Fetch-Go)
+[![TypeScript](https://img.shields.io/badge/TypeScript-first-blue)](https://github.com/namecloudz/Fetch-Go)
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-green)](https://github.com/namecloudz/Fetch-Go)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Why Fetch-Go?
