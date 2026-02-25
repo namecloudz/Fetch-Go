@@ -3,16 +3,27 @@ import { FetchGoError, ERR_NETWORK, ERR_TIMEOUT, ERR_CANCELED, ERR_BAD_REQUEST, 
 import { buildURL } from '../helpers/buildURL.js';
 import { normalizeHeaders, isPlainObject, objectToURLSearchParams } from '../helpers/utils.js';
 
-let http: typeof import('http') | undefined;
-let https: typeof import('https') | undefined;
-let zlib: typeof import('zlib') | undefined;
+interface NodeModules {
+    http: typeof import('http');
+    https: typeof import('https');
+    zlib: typeof import('zlib');
+}
 
-try {
-    http = await import('http');
-    https = await import('https');
-    zlib = await import('zlib');
-} catch {
-    // Not in Node.js environment
+let _cached: NodeModules | null | undefined;
+
+async function getNodeModules(): Promise<NodeModules | null> {
+    if (_cached !== undefined) return _cached;
+    try {
+        const [h, hs, z] = await Promise.all([
+            import('http'),
+            import('https'),
+            import('zlib'),
+        ]);
+        _cached = { http: h, https: hs, zlib: z };
+    } catch {
+        _cached = null;
+    }
+    return _cached;
 }
 
 function defaultValidateStatus(status: number): boolean {
@@ -23,11 +34,9 @@ function prepareNodeBody(
     data: unknown,
     headers: Record<string, string>,
     config: FetchGoRequestConfig
-): Buffer | string | undefined {
+): string | undefined {
     if (data === undefined || data === null) return undefined;
-
     if (typeof data === 'string') return data;
-    if (data instanceof Buffer) return data;
 
     if (isPlainObject(data) || Array.isArray(data)) {
         const ct = headers['content-type'] || '';
@@ -53,7 +62,6 @@ function parseNodeResponse(buffer: Buffer, contentType: string, responseType?: s
     if (responseType === 'stream') return buffer;
 
     const text = buffer.toString('utf-8');
-
     if (responseType === 'text') return text;
 
     if (responseType === 'json' || contentType.includes('application/json')) {
@@ -67,15 +75,13 @@ function parseNodeResponse(buffer: Buffer, contentType: string, responseType?: s
     return text;
 }
 
-export function isNodeEnvironment(): boolean {
-    return typeof http !== 'undefined' && typeof https !== 'undefined';
-}
-
 export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGoResponse> {
-    if (!http || !https) {
+    const mods = await getNodeModules();
+    if (!mods) {
         throw new FetchGoError('Node.js http/https modules not available', ERR_NETWORK, config);
     }
 
+    const { http, https, zlib } = mods;
     const headers = normalizeHeaders(config.headers);
 
     let body = config.data;
@@ -121,8 +127,8 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
                 timeout: config.timeout || 0,
             };
 
-            const t = requestUrl.protocol === 'https:' ? https! : http!;
-            const req = t.request(options, (res) => {
+            const transport = requestUrl.protocol === 'https:' ? https : http;
+            const req = transport.request(options, (res) => {
                 if (res.statusCode && [301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
                     redirectCount++;
                     if (redirectCount > maxRedirects) {
@@ -146,7 +152,7 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
                 const contentEncoding = res.headers['content-encoding'];
                 let stream: NodeJS.ReadableStream = res;
 
-                if (zlib && contentEncoding) {
+                if (contentEncoding) {
                     if (contentEncoding === 'gzip') {
                         stream = res.pipe(zlib.createGunzip());
                     } else if (contentEncoding === 'deflate') {
@@ -193,13 +199,11 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
                     let data: unknown;
 
                     try {
+                        data = parseNodeResponse(buffer, contentType, config.responseType);
                         if (config.transformResponse) {
-                            data = parseNodeResponse(buffer, contentType, config.responseType);
                             for (const transform of config.transformResponse) {
                                 data = transform(data);
                             }
-                        } else {
-                            data = parseNodeResponse(buffer, contentType, config.responseType);
                         }
                     } catch {
                         data = buffer.toString('utf-8');
@@ -218,7 +222,7 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
                         statusText: res.statusMessage || '',
                         headers: responseHeaders,
                         config,
-                        request: {} as Response,
+                        request: new Response(null) as Response,
                     };
 
                     const validateStatus = config.validateStatus || defaultValidateStatus;
@@ -271,11 +275,11 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
 
             if (preparedBody !== undefined && !['GET', 'HEAD'].includes(options.method!)) {
                 if (config.onUploadProgress) {
-                    const bodyBuf = Buffer.isBuffer(preparedBody) ? preparedBody : Buffer.from(preparedBody);
+                    const bodyBuf = Buffer.from(preparedBody);
                     const totalSize = bodyBuf.length;
                     const chunkSize = 16384;
                     let uploaded = 0;
-                    const startTime = Date.now();
+                    const uploadStart = Date.now();
 
                     const writeChunk = (offset: number) => {
                         const end = Math.min(offset + chunkSize, totalSize);
@@ -283,7 +287,7 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
                         const bytes = chunk.length;
                         uploaded += bytes;
 
-                        const elapsed = (Date.now() - startTime) / 1000;
+                        const elapsed = (Date.now() - uploadStart) / 1000;
                         const rate = elapsed > 0 ? uploaded / elapsed : 0;
 
                         config.onUploadProgress!({
