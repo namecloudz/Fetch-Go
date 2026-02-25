@@ -3,6 +3,7 @@ import { FetchGoError, ERR_NETWORK, ERR_TIMEOUT, ERR_CANCELED, ERR_BAD_REQUEST, 
 import { buildURL } from '../helpers/buildURL.js';
 import { normalizeHeaders, isPlainObject, isFormData, isURLSearchParams, isBlob, isArrayBuffer, isStream, getCookie, objectToFormData, objectToURLSearchParams } from '../helpers/utils.js';
 import { httpAdapter } from '../adapters/http.js';
+import { validateConfig } from '../helpers/validateConfig.js';
 
 const DEFAULT_RETRY: RetryConfig = {
     retries: 0,
@@ -456,6 +457,7 @@ function selectAdapter(config: FetchGoRequestConfig): (config: FetchGoRequestCon
 export async function dispatchRequest(
     config: FetchGoRequestConfig
 ): Promise<FetchGoResponse> {
+    validateConfig(config);
     const retryConfig = normalizeRetryConfig(config.retry);
     const method = (config.method || 'GET').toUpperCase();
     const adapter = selectAdapter(config);
