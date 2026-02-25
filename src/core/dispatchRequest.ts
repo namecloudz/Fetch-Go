@@ -1,7 +1,7 @@
 import type { FetchGoRequestConfig, FetchGoResponse, RetryConfig } from '../types/index.js';
 import { FetchGoError, ERR_NETWORK, ERR_TIMEOUT, ERR_CANCELED, ERR_BAD_REQUEST, ERR_BAD_RESPONSE } from '../error/FetchGoError.js';
 import { buildURL } from '../helpers/buildURL.js';
-import { normalizeHeaders, isPlainObject, isFormData, isURLSearchParams, isBlob, isArrayBuffer, isStream } from '../helpers/utils.js';
+import { normalizeHeaders, isPlainObject, isFormData, isURLSearchParams, isBlob, isArrayBuffer, isStream, getCookie, objectToFormData, objectToURLSearchParams } from '../helpers/utils.js';
 
 const DEFAULT_RETRY: RetryConfig = {
     retries: 0,
@@ -46,7 +46,8 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 function prepareBody(
     data: unknown,
-    headers: Record<string, string>
+    headers: Record<string, string>,
+    config: FetchGoRequestConfig
 ): BodyInit | undefined {
     if (data === undefined || data === null) return undefined;
 
@@ -62,6 +63,19 @@ function prepareBody(
     }
 
     if (isPlainObject(data) || Array.isArray(data)) {
+        const ct = headers['content-type'] || '';
+        const serializer = config.formSerializer;
+
+        if (serializer === 'formdata' || ct.includes('multipart/form-data')) {
+            delete headers['content-type'];
+            return objectToFormData(data as Record<string, unknown>);
+        }
+
+        if (serializer === 'urlencoded' || ct.includes('application/x-www-form-urlencoded')) {
+            headers['content-type'] = 'application/x-www-form-urlencoded';
+            return objectToURLSearchParams(data as Record<string, unknown>);
+        }
+
         if (!headers['content-type']) {
             headers['content-type'] = 'application/json';
         }
@@ -187,7 +201,14 @@ async function executeFetch(
         }
     }
 
-    const preparedBody = prepareBody(body, headers);
+    const preparedBody = prepareBody(body, headers, config);
+
+    if (config.xsrfCookieName && config.xsrfHeaderName) {
+        const token = getCookie(config.xsrfCookieName);
+        if (token) {
+            headers[config.xsrfHeaderName.toLowerCase()] = token;
+        }
+    }
 
     const url = buildURL(config.baseURL, config.url, config.params, config.paramsSerializer);
 

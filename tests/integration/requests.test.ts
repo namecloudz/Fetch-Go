@@ -223,3 +223,54 @@ describe('Response parsing', () => {
         expect(data).toBeNull();
     });
 });
+
+describe('Form serialization', () => {
+    it('should serialize object to FormData when formSerializer is formdata', async () => {
+        mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }));
+
+        await fetchgo.post('/upload', { name: 'John', age: 30 }, {
+            formSerializer: 'formdata',
+        });
+
+        const [, init] = mockFetch.mock.calls[0];
+        expect(init.body).toBeInstanceOf(FormData);
+        expect((init.body as FormData).get('name')).toBe('John');
+        expect((init.body as FormData).get('age')).toBe('30');
+        expect(init.headers['content-type']).toBeUndefined();
+    });
+
+    it('should serialize object to URLSearchParams when formSerializer is urlencoded', async () => {
+        mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }));
+
+        await fetchgo.post('/form', { name: 'John', age: 30 }, {
+            formSerializer: 'urlencoded',
+        });
+
+        const [, init] = mockFetch.mock.calls[0];
+        expect(init.body).toBeInstanceOf(URLSearchParams);
+        expect((init.body as URLSearchParams).get('name')).toBe('John');
+        expect(init.headers['content-type']).toBe('application/x-www-form-urlencoded');
+    });
+
+    it('should auto-detect multipart/form-data from content-type header', async () => {
+        mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }));
+
+        await fetchgo.post('/upload', { file: 'data' }, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+
+        const [, init] = mockFetch.mock.calls[0];
+        expect(init.body).toBeInstanceOf(FormData);
+    });
+
+    it('should auto-detect urlencoded from content-type header', async () => {
+        mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }));
+
+        await fetchgo.post('/form', { q: 'search' }, {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        });
+
+        const [, init] = mockFetch.mock.calls[0];
+        expect(init.body).toBeInstanceOf(URLSearchParams);
+    });
+});

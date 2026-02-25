@@ -71,3 +71,58 @@ export function normalizeHeaders(
 
     return result;
 }
+
+export function getCookie(name: string): string | null {
+    if (typeof document === 'undefined') return null;
+    const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]*)'));
+    return match ? decodeURIComponent(match[2]) : null;
+}
+
+export function objectToFormData(obj: Record<string, unknown>, formData?: FormData, parentKey?: string): FormData {
+    const fd = formData || new FormData();
+
+    for (const [key, value] of Object.entries(obj)) {
+        const fullKey = parentKey ? `${parentKey}[${key}]` : key;
+
+        if (value === null || value === undefined) {
+            continue;
+        } else if (value instanceof File || value instanceof Blob) {
+            fd.append(fullKey, value);
+        } else if (Array.isArray(value)) {
+            for (let i = 0; i < value.length; i++) {
+                const itemKey = `${fullKey}[${i}]`;
+                if (isPlainObject(value[i])) {
+                    objectToFormData(value[i] as Record<string, unknown>, fd, itemKey);
+                } else {
+                    fd.append(itemKey, String(value[i]));
+                }
+            }
+        } else if (isPlainObject(value)) {
+            objectToFormData(value as Record<string, unknown>, fd, fullKey);
+        } else {
+            fd.append(fullKey, String(value));
+        }
+    }
+
+    return fd;
+}
+
+export function objectToURLSearchParams(obj: Record<string, unknown>): URLSearchParams {
+    const params = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(obj)) {
+        if (value === null || value === undefined) continue;
+
+        if (Array.isArray(value)) {
+            for (const v of value) {
+                if (v !== null && v !== undefined) {
+                    params.append(key, String(v));
+                }
+            }
+        } else {
+            params.append(key, String(value));
+        }
+    }
+
+    return params;
+}

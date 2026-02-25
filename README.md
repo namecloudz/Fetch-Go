@@ -18,6 +18,8 @@
 | Interceptors | ❌ | ✅ | ✅ |
 | Retry | ❌ | ❌ plugin | ✅ built-in |
 | Cancel | Manual | CancelToken (deprecated) | ✅ native `AbortSignal` |
+| Form Serialization | ❌ | ✅ | ✅ FormData + URLSearchParams |
+| XSRF Protection | ❌ | ✅ | ✅ |
 | TypeScript | Manual types | ✅ | ✅ **first-class generics** |
 | Based on | — | XMLHttpRequest | **native `fetch()`** |
 
@@ -144,6 +146,38 @@ try {
 }
 ```
 
+## Form Serialization
+
+```typescript
+// Auto-serialize to multipart/form-data
+await fetchgo.post('/upload', { name: 'John', avatar: file }, {
+  formSerializer: 'formdata'
+});
+
+// Auto-serialize to x-www-form-urlencoded
+await fetchgo.post('/login', { username: 'john', password: 'secret' }, {
+  formSerializer: 'urlencoded'
+});
+
+// Also works by setting Content-Type header directly
+await fetchgo.post('/form', data, {
+  headers: { 'Content-Type': 'multipart/form-data' }
+});
+```
+
+## XSRF Protection
+
+```typescript
+const api = fetchgo.create({
+  xsrfCookieName: 'XSRF-TOKEN',
+  xsrfHeaderName: 'X-XSRF-TOKEN',
+});
+
+// The XSRF token is automatically read from cookies
+// and sent as a header on every request.
+await api.post('/api/transfer', { amount: 100 });
+```
+
 ## Migrating from Axios
 
 Fetch-Go's API is designed to be a near drop-in replacement:
@@ -196,6 +230,9 @@ const { data } = await api.get('/users');
   responseType: 'json', // 'text' | 'blob' | 'arraybuffer'
   validateStatus: (status) => status < 400,
   withCredentials: true,
+  formSerializer: 'formdata', // 'urlencoded'
+  xsrfCookieName: 'XSRF-TOKEN',
+  xsrfHeaderName: 'X-XSRF-TOKEN',
   transformRequest: [(data, headers) => { /* ... */ return data }],
   transformResponse: [(data) => { /* ... */ return data }],
   // Pass-through fetch options
