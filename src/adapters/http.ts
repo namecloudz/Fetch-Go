@@ -93,6 +93,11 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
 
     const preparedBody = prepareNodeBody(body, headers, config);
 
+    if (config.auth) {
+        const { username, password } = config.auth;
+        headers['authorization'] = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+    }
+
     if (preparedBody !== undefined && !headers['content-length']) {
         const len = Buffer.byteLength(preparedBody);
         headers['content-length'] = String(len);
@@ -106,7 +111,7 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
         }
     }
 
-    const url = buildURL(config.baseURL, config.url, config.params, config.paramsSerializer);
+    const url = buildURL(config.baseURL, config.url, config.params, config.paramsSerializer, config.allowAbsoluteUrls);
     if (!url) {
         throw new FetchGoError('No URL provided', ERR_BAD_REQUEST, config);
     }
@@ -118,16 +123,38 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
         let redirectCount = 0;
 
         function doRequest(requestUrl: URL): void {
+            const isHttps = requestUrl.protocol === 'https:';
             const options: import('http').RequestOptions = {
                 hostname: requestUrl.hostname,
-                port: requestUrl.port || (requestUrl.protocol === 'https:' ? 443 : 80),
+                port: requestUrl.port || (isHttps ? 443 : 80),
                 path: requestUrl.pathname + requestUrl.search,
                 method: (config.method || 'GET').toUpperCase(),
                 headers,
                 timeout: config.timeout || 0,
             };
 
-            const transport = requestUrl.protocol === 'https:' ? https : http;
+            if (config.socketPath) {
+                options.socketPath = config.socketPath;
+            }
+
+            if (config.proxy && typeof config.proxy === 'object') {
+                options.hostname = config.proxy.host;
+                options.port = config.proxy.port;
+                options.path = requestUrl.href;
+                if (config.proxy.auth) {
+                    const proxyAuth = Buffer.from(
+                        `${config.proxy.auth.username}:${config.proxy.auth.password}`
+                    ).toString('base64');
+                    headers['proxy-authorization'] = `Basic ${proxyAuth}`;
+                }
+            }
+
+            const agent = isHttps ? config.httpsAgent : config.httpAgent;
+            if (agent) {
+                options.agent = agent as import('http').Agent;
+            }
+
+            const transport = isHttps ? https : http;
             const req = transport.request(options, (res) => {
                 if (res.statusCode && [301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
                     redirectCount++;
@@ -140,6 +167,15 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
                         return;
                     }
                     const nextUrl = new URL(res.headers.location, requestUrl.href);
+
+                    if (config.beforeRedirect) {
+                        const resHeaders: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(res.headers)) {
+                            if (v) resHeaders[k] = Array.isArray(v) ? v.join(', ') : v;
+                        }
+                        config.beforeRedirect({ url: nextUrl.href, method: options.method }, { headers: resHeaders });
+                    }
+
                     doRequest(nextUrl);
                     return;
                 }

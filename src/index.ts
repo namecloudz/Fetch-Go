@@ -6,6 +6,7 @@ export { FetchGoError, isFetchGoError, isCancel, ERR_CANCELED, ERR_NETWORK, ERR_
 export { InterceptorManager } from './core/InterceptorManager.js';
 export { buildURL } from './helpers/buildURL.js';
 export { httpAdapter } from './adapters/http.js';
+export { toFormData, formToJSON } from './helpers/utils.js';
 
 export type {
     Method,
@@ -16,6 +17,8 @@ export type {
     FetchGoProgressEvent,
     RetryConfig,
     Adapter,
+    AuthConfig,
+    ProxyConfig,
     FetchGoInstance,
     InterceptorHandlers,
     InterceptorManagerInterface,
@@ -32,3 +35,4 @@ const fetchgo = new FetchGo({
 export default fetchgo;
 
 export { fetchgo };
+

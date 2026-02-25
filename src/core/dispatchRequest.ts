@@ -212,7 +212,12 @@ async function executeFetch(
         }
     }
 
-    const url = buildURL(config.baseURL, config.url, config.params, config.paramsSerializer);
+    if (config.auth) {
+        const { username, password } = config.auth;
+        headers['authorization'] = 'Basic ' + btoa(`${username}:${password}`);
+    }
+
+    const url = buildURL(config.baseURL, config.url, config.params, config.paramsSerializer, config.allowAbsoluteUrls);
 
     if (!url) {
         throw new FetchGoError('No URL provided', ERR_BAD_REQUEST, config);
@@ -298,6 +303,13 @@ async function executeFetch(
             if (!location) break;
 
             currentUrl = new URL(location, currentUrl).href;
+
+            if (config.beforeRedirect) {
+                const resHeaders: Record<string, string> = {};
+                rawResponse.headers.forEach((v, k) => { resHeaders[k] = v; });
+                config.beforeRedirect({ url: currentUrl, method: currentInit.method }, { headers: resHeaders });
+            }
+
             if ([301, 302, 303].includes(rawResponse.status)) {
                 currentInit = { ...currentInit, method: 'GET', body: undefined };
             }

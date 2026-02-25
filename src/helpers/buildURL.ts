@@ -23,13 +23,14 @@ export function buildURL(
     baseURL?: string,
     url?: string,
     params?: Params,
-    paramsSerializer?: ParamsSerializer
+    paramsSerializer?: ParamsSerializer,
+    allowAbsoluteUrls: boolean = true
 ): string {
     let fullURL = '';
 
     if (baseURL && url) {
 
-        if (/^https?:\/\//i.test(url)) {
+        if (allowAbsoluteUrls && /^https?:\/\//i.test(url)) {
             fullURL = url;
         } else {
             const base = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;

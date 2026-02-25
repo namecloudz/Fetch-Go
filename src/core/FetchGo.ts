@@ -2,6 +2,7 @@ import type { FetchGoRequestConfig, FetchGoResponse } from '../types/index.js';
 import { InterceptorManager } from './InterceptorManager.js';
 import { mergeConfig } from './mergeConfig.js';
 import { dispatchRequest } from './dispatchRequest.js';
+import { buildURL } from '../helpers/buildURL.js';
 
 export class FetchGo {
     defaults: FetchGoRequestConfig;
@@ -19,7 +20,7 @@ export class FetchGo {
         };
     }
 
-        async request<T = unknown>(
+    async request<T = unknown>(
         configOrUrl: string | FetchGoRequestConfig,
         overrides?: FetchGoRequestConfig
     ): Promise<FetchGoResponse<T>> {
@@ -125,8 +126,24 @@ export class FetchGo {
         return this.request<T>(url, { ...config, method: 'PATCH', data });
     }
 
+    postForm<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
+        return this.request<T>(url, { ...config, method: 'POST', data, formSerializer: 'formdata' });
+    }
 
-        create(config?: FetchGoRequestConfig): FetchGo {
+    putForm<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
+        return this.request<T>(url, { ...config, method: 'PUT', data, formSerializer: 'formdata' });
+    }
+
+    patchForm<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
+        return this.request<T>(url, { ...config, method: 'PATCH', data, formSerializer: 'formdata' });
+    }
+
+    getUri(config?: FetchGoRequestConfig): string {
+        const merged = config ? mergeConfig(this.defaults, config) : this.defaults;
+        return buildURL(merged.baseURL, merged.url, merged.params, merged.paramsSerializer, merged.allowAbsoluteUrls);
+    }
+
+    create(config?: FetchGoRequestConfig): FetchGo {
         return new FetchGo(mergeConfig(this.defaults, config));
     }
 }

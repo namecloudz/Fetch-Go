@@ -35,6 +35,18 @@ export interface FetchGoProgressEvent {
     download?: boolean;
 }
 
+export interface AuthConfig {
+    username: string;
+    password: string;
+}
+
+export interface ProxyConfig {
+    protocol?: string;
+    host: string;
+    port: number;
+    auth?: AuthConfig;
+}
+
 export type Adapter = 'fetch' | 'http' | ((config: FetchGoRequestConfig) => Promise<FetchGoResponse>);
 
 export interface FetchGoRequestConfig<D = unknown> {
@@ -69,6 +81,16 @@ export interface FetchGoRequestConfig<D = unknown> {
     maxContentLength?: number;
     maxBodyLength?: number;
     adapter?: Adapter;
+    auth?: AuthConfig | null;
+    proxy?: ProxyConfig | false;
+    httpAgent?: unknown;
+    httpsAgent?: unknown;
+    decompress?: boolean;
+    responseEncoding?: string;
+    socketPath?: string | null;
+    beforeRedirect?: (options: Record<string, unknown>, responseDetails: { headers: Record<string, string> }) => void;
+    allowAbsoluteUrls?: boolean;
+    maxRate?: number | [number, number];
 }
 
 export interface FetchGoResponse<T = unknown> {
@@ -113,7 +135,11 @@ export interface FetchGoInstance {
     post<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>>;
     put<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>>;
     patch<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>>;
+    postForm<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>>;
+    putForm<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>>;
+    patchForm<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>>;
 
+    getUri(config?: FetchGoRequestConfig): string;
     create(config?: FetchGoRequestConfig): FetchGoInstance;
     isCancel(error: unknown): boolean;
 }
