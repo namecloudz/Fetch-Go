@@ -28,14 +28,17 @@
 | TypeScript | Manual types | ✅ | ✅ **first-class generics** |
 | Based on | — | XMLHttpRequest | **native `fetch()`** |
 
-## Performance
+## Benchmark
 
-```
-⏱️  Import time:     51.6x faster than Axios
-🚀 GET requests:     1.85x faster (63,316 req/s)
-📤 POST requests:    2.52x faster (78,901 req/s)
-🏗️  Instance create:  10.75x faster
-```
+Measured with 10,000 iterations on Node.js v22, `globalThis.fetch` mock. [Run it yourself →](benchmarks/benchmark.mjs)
+
+| Metric | Fetch-Go | Axios | |
+|--------|----------|-------|-|
+| Import time | 2.6ms | 134ms | 51x faster |
+| GET throughput | 63,316 req/s | 34,205 req/s | 1.85x |
+| POST throughput | 78,901 req/s | 31,322 req/s | 2.5x |
+| Instance creation | 6ms | 64ms | 10x |
+| Bundle (gzip) | 6.1KB | ~13KB | 2x smaller |
 
 ## Install
 
