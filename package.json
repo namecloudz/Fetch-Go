@@ -1,6 +1,6 @@
 {
   "name": "fetch-go",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "Lightweight Axios-compatible HTTP client built on native fetch(). ~2KB gzipped.",
   "type": "module",
   "main": "./dist/index.cjs",
