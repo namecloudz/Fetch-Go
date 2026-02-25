@@ -30,8 +30,6 @@
 
 ## Benchmark
 
-Measured with 10,000 iterations on Node.js v22, `globalThis.fetch` mock. [Run it yourself →](benchmarks/benchmark.mjs)
-
 | Metric | Fetch-Go | Axios | |
 |--------|----------|-------|-|
 | Import time | 2.6ms | 134ms | 51x faster |
