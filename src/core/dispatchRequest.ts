@@ -3,7 +3,6 @@ import { FetchGoError, ERR_NETWORK, ERR_TIMEOUT, ERR_CANCELED, ERR_BAD_REQUEST, 
 import { buildURL } from '../helpers/buildURL.js';
 import { normalizeHeaders, isPlainObject, isFormData, isURLSearchParams, isBlob, isArrayBuffer, isStream } from '../helpers/utils.js';
 
-/** Default retry config */
 const DEFAULT_RETRY: RetryConfig = {
     retries: 0,
     delay: 300,
@@ -12,14 +11,10 @@ const DEFAULT_RETRY: RetryConfig = {
     retryStatusCodes: [408, 429, 500, 502, 503, 504],
 };
 
-/** Default status validator (2xx = success) */
 function defaultValidateStatus(status: number): boolean {
     return status >= 200 && status < 300;
 }
 
-/**
- * Normalize retry config from various input formats
- */
 function normalizeRetryConfig(retry?: Partial<RetryConfig> | number | boolean): RetryConfig {
     if (retry === false || retry === undefined) {
         return { ...DEFAULT_RETRY, retries: 0 };
@@ -33,9 +28,6 @@ function normalizeRetryConfig(retry?: Partial<RetryConfig> | number | boolean): 
     return { ...DEFAULT_RETRY, ...retry };
 }
 
-/**
- * Sleep utility for retry delays
- */
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
         if (signal?.aborted) {
@@ -52,16 +44,12 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     });
 }
 
-/**
- * Prepare the request body — auto-serialize objects to JSON.
- */
 function prepareBody(
     data: unknown,
     headers: Record<string, string>
 ): BodyInit | undefined {
     if (data === undefined || data === null) return undefined;
 
-    // Don't touch FormData, Blob, ArrayBuffer, ReadableStream, URLSearchParams, or strings
     if (
         typeof data === 'string' ||
         isFormData(data) ||
@@ -73,7 +61,6 @@ function prepareBody(
         return data as BodyInit;
     }
 
-    // Auto-serialize plain objects and arrays to JSON
     if (isPlainObject(data) || Array.isArray(data)) {
         if (!headers['content-type']) {
             headers['content-type'] = 'application/json';
@@ -84,14 +71,10 @@ function prepareBody(
     return data as BodyInit;
 }
 
-/**
- * Parse the response body based on content-type or explicit responseType.
- */
 async function parseResponse(
     response: Response,
     responseType?: string
 ): Promise<unknown> {
-    // Explicit response type takes precedence
     if (responseType) {
         switch (responseType) {
             case 'json': return response.json();
@@ -102,14 +85,12 @@ async function parseResponse(
         }
     }
 
-    // No body to parse
     if (response.status === 204 || response.status === 304) {
         return null;
     }
 
     const contentType = response.headers.get('content-type') || '';
 
-    // Auto-detect JSON
     if (contentType.includes('application/json')) {
         try {
             return await response.json();
@@ -118,10 +99,8 @@ async function parseResponse(
         }
     }
 
-    // Try JSON parsing for unknown content types (common pattern)
     if (!contentType || contentType.includes('text/')) {
         const text = await response.text();
-        // Attempt JSON parse for text responses
         try {
             return JSON.parse(text);
         } catch {
@@ -129,13 +108,9 @@ async function parseResponse(
         }
     }
 
-    // Default: return text
     return response.text();
 }
 
-/**
- * Build a combined AbortSignal from timeout + user signal.
- */
 function buildAbortSignal(
     config: FetchGoRequestConfig
 ): { signal: AbortSignal | undefined; cleanup: () => void } {
@@ -143,18 +118,14 @@ function buildAbortSignal(
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined;
 
-    // User-supplied signal
     if (config.signal) {
         signals.push(config.signal);
     }
 
-    // Timeout signal
     if (config.timeout && config.timeout > 0) {
-        // Use AbortSignal.timeout if available
         if ('timeout' in AbortSignal) {
             signals.push(AbortSignal.timeout(config.timeout));
         } else {
-            // Fallback for older environments
             controller = new AbortController();
             timeoutId = setTimeout(() => controller!.abort(new DOMException('Timeout', 'TimeoutError')), config.timeout);
             signals.push(controller.signal);
@@ -174,7 +145,6 @@ function buildAbortSignal(
         };
     }
 
-    // Combine multiple signals using AbortSignal.any if available
     if ('any' in AbortSignal) {
         return {
             signal: AbortSignal.any(signals),
@@ -184,7 +154,6 @@ function buildAbortSignal(
         };
     }
 
-    // Fallback: manual combination
     const combined = new AbortController();
     const onAbort = () => combined.abort();
     for (const s of signals) {
@@ -206,15 +175,11 @@ function buildAbortSignal(
     };
 }
 
-/**
- * Dispatch a single fetch request (no interceptors).
- */
 async function executeFetch(
     config: FetchGoRequestConfig
 ): Promise<FetchGoResponse> {
     const headers = normalizeHeaders(config.headers);
 
-    // Apply request transforms
     let body = config.data;
     if (config.transformRequest) {
         for (const transform of config.transformRequest) {
@@ -222,20 +187,16 @@ async function executeFetch(
         }
     }
 
-    // Prepare body (auto JSON.stringify)
     const preparedBody = prepareBody(body, headers);
 
-    // Build final URL
     const url = buildURL(config.baseURL, config.url, config.params, config.paramsSerializer);
 
     if (!url) {
         throw new FetchGoError('No URL provided', ERR_BAD_REQUEST, config);
     }
 
-    // Build abort signal
     const { signal, cleanup } = buildAbortSignal(config);
 
-    // Build fetch init
     const method = (config.method || 'GET').toUpperCase();
     const init: RequestInit = {
         method,
@@ -244,7 +205,6 @@ async function executeFetch(
         ...config.fetchOptions,
     };
 
-    // Only include body for methods that support it
     if (preparedBody !== undefined && !['GET', 'HEAD'].includes(method)) {
         init.body = preparedBody;
     }
@@ -268,7 +228,6 @@ async function executeFetch(
 
         if (error instanceof DOMException) {
             if (error.name === 'AbortError') {
-                // Check if it was a timeout or user cancel
                 if (config.signal?.aborted) {
                     throw new FetchGoError('Request canceled', ERR_CANCELED, config);
                 }
@@ -294,7 +253,6 @@ async function executeFetch(
         );
     }
 
-    // Parse response
     let data: unknown;
     try {
         data = await parseResponse(rawResponse, config.responseType);
@@ -304,7 +262,6 @@ async function executeFetch(
 
     cleanup();
 
-    // Apply response transforms
     if (config.transformResponse) {
         for (const transform of config.transformResponse) {
             data = transform(data);
@@ -320,7 +277,6 @@ async function executeFetch(
         request: rawResponse,
     };
 
-    // Check status code
     const validateStatus = config.validateStatus || defaultValidateStatus;
     if (!validateStatus(rawResponse.status)) {
         throw new FetchGoError(
@@ -334,10 +290,6 @@ async function executeFetch(
     return response;
 }
 
-/**
- * Dispatch a request with retry logic.
- * This is the main entry point called by FetchGo.request() after interceptors.
- */
 export async function dispatchRequest(
     config: FetchGoRequestConfig
 ): Promise<FetchGoResponse> {
@@ -352,36 +304,29 @@ export async function dispatchRequest(
         } catch (error) {
             lastError = error;
 
-            // Don't retry if cancelled
             if (error instanceof FetchGoError && error.code === ERR_CANCELED) {
                 throw error;
             }
 
-            // Don't retry if signal aborted
             if (config.signal?.aborted) {
                 throw error;
             }
 
-            // Check if we should retry
             const isLastAttempt = attempt === retryConfig.retries;
             if (isLastAttempt) throw error;
 
-            // Check method
             if (!retryConfig.retryOn.includes(method)) throw error;
 
-            // Check custom condition
             if (retryConfig.retryCondition && !retryConfig.retryCondition(error)) {
                 throw error;
             }
 
-            // Check status code
             if (error instanceof FetchGoError && error.status) {
                 if (!retryConfig.retryStatusCodes.includes(error.status)) {
                     throw error;
                 }
             }
 
-            // Wait before retry (exponential backoff)
             const delay = retryConfig.delay * Math.pow(retryConfig.backoff, attempt);
             await sleep(delay, config.signal);
         }

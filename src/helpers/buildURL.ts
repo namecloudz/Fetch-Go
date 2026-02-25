@@ -1,9 +1,5 @@
 import type { Params, ParamsSerializer } from '../types/index.js';
 
-/**
- * Default query params serializer.
- * Supports arrays (repeated keys) and skips null/undefined values.
- */
 function defaultSerializer(params: Params): string {
     const parts: string[] = [];
 
@@ -23,9 +19,6 @@ function defaultSerializer(params: Params): string {
     return parts.join('&');
 }
 
-/**
- * Combine baseURL, relative URL, and query params into a final URL string.
- */
 export function buildURL(
     baseURL?: string,
     url?: string,
@@ -35,7 +28,7 @@ export function buildURL(
     let fullURL = '';
 
     if (baseURL && url) {
-        // If url is absolute, ignore baseURL
+
         if (/^https?:\/\//i.test(url)) {
             fullURL = url;
         } else {

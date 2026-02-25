@@ -3,13 +3,6 @@ import { InterceptorManager } from './InterceptorManager.js';
 import { mergeConfig } from './mergeConfig.js';
 import { dispatchRequest } from './dispatchRequest.js';
 
-/**
- * FetchGo — Lightweight Axios-compatible HTTP client built on native fetch().
- *
- * Usage:
- *   const api = new FetchGo({ baseURL: 'https://api.example.com' });
- *   const { data } = await api.get<User[]>('/users');
- */
 export class FetchGo {
     defaults: FetchGoRequestConfig;
 
@@ -26,10 +19,7 @@ export class FetchGo {
         };
     }
 
-    /**
-     * Main request method — runs interceptor chain + dispatch.
-     */
-    async request<T = unknown>(
+        async request<T = unknown>(
         configOrUrl: string | FetchGoRequestConfig,
         overrides?: FetchGoRequestConfig
     ): Promise<FetchGoResponse<T>> {
@@ -41,8 +31,6 @@ export class FetchGo {
             config = mergeConfig(this.defaults, configOrUrl);
         }
 
-        // Build interceptor chain
-        // Request interceptors (LIFO order, like Axios)
         type ChainItem = {
             fulfilled: (value: unknown) => unknown | Promise<unknown>;
             rejected?: (error: unknown) => unknown;
@@ -58,7 +46,6 @@ export class FetchGo {
             responseChain.push(handler as ChainItem);
         });
 
-        // Apply request interceptors
         let currentConfig = config;
         for (const { fulfilled, rejected } of requestChain) {
             try {
@@ -72,17 +59,14 @@ export class FetchGo {
             }
         }
 
-        // Dispatch request
         let response: FetchGoResponse;
         try {
             response = await dispatchRequest(currentConfig);
         } catch (error) {
-            // Run response error interceptors
             for (const { rejected } of responseChain) {
                 if (rejected) {
                     try {
                         const result = await rejected(error);
-                        // If interceptor returns a response, treat as recovered
                         if (result && typeof result === 'object' && 'data' in result && 'status' in result) {
                             return result as FetchGoResponse<T>;
                         }
@@ -94,7 +78,6 @@ export class FetchGo {
             throw error;
         }
 
-        // Apply response interceptors
         for (const { fulfilled, rejected } of responseChain) {
             try {
                 response = (await fulfilled(response)) as FetchGoResponse;
@@ -113,7 +96,6 @@ export class FetchGo {
         return response as FetchGoResponse<T>;
     }
 
-    // --------------- Convenience Methods ---------------
 
     get<T = unknown>(url: string, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
         return this.request<T>(url, { ...config, method: 'GET' });
@@ -143,12 +125,8 @@ export class FetchGo {
         return this.request<T>(url, { ...config, method: 'PATCH', data });
     }
 
-    // --------------- Factory ---------------
 
-    /**
-     * Create a new FetchGo instance with merged defaults.
-     */
-    create(config?: FetchGoRequestConfig): FetchGo {
+        create(config?: FetchGoRequestConfig): FetchGo {
         return new FetchGo(mergeConfig(this.defaults, config));
     }
 }
