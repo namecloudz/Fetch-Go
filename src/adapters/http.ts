@@ -7,6 +7,7 @@ interface NodeModules {
     http: typeof import('http');
     https: typeof import('https');
     zlib: typeof import('zlib');
+    http2: typeof import('http2') | null;
 }
 
 let _cached: NodeModules | null | undefined;
@@ -19,7 +20,13 @@ async function getNodeModules(): Promise<NodeModules | null> {
             import('https'),
             import('zlib'),
         ]);
-        _cached = { http: h, https: hs, zlib: z };
+        let h2: typeof import('http2') | null = null;
+        try {
+            h2 = await import('http2');
+        } catch {
+            // http2 not available
+        }
+        _cached = { http: h, https: hs, zlib: z, http2: h2 };
     } catch {
         _cached = null;
     }
@@ -81,7 +88,7 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
         throw new FetchGoError('Node.js http/https modules not available', ERR_NETWORK, config);
     }
 
-    const { http, https, zlib } = mods;
+    const { http, https, zlib, http2 } = mods;
     const headers = normalizeHeaders(config.headers);
 
     let body = config.data;
@@ -119,6 +126,163 @@ export async function httpAdapter(config: FetchGoRequestConfig): Promise<FetchGo
     const parsedUrl = new URL(url);
     const maxRedirects = config.maxRedirects ?? 5;
 
+    // ── HTTP/2 path ──
+    if (config.httpVersion === 2) {
+        if (!http2) {
+            throw new FetchGoError('HTTP/2 module not available', ERR_NETWORK, config);
+        }
+
+        return new Promise<FetchGoResponse>((resolve, reject) => {
+            const origin = parsedUrl.origin;
+            const session = http2.connect(origin);
+
+            session.on('error', (err: Error) => {
+                reject(new FetchGoError(err.message, ERR_NETWORK, config));
+            });
+
+            const h2Headers: Record<string, string | number> = {
+                ':method': (config.method || 'GET').toUpperCase(),
+                ':path': parsedUrl.pathname + parsedUrl.search,
+                ':scheme': parsedUrl.protocol.replace(':', ''),
+                ':authority': parsedUrl.host,
+                ...headers,
+            };
+
+            const req = session.request(h2Headers);
+
+            if (config.timeout) {
+                req.setTimeout(config.timeout, () => {
+                    req.close();
+                    session.close();
+                    reject(new FetchGoError(
+                        `Request timeout of ${config.timeout}ms exceeded`,
+                        ERR_TIMEOUT,
+                        config
+                    ));
+                });
+            }
+
+            if (config.signal) {
+                if (config.signal.aborted) {
+                    req.close();
+                    session.close();
+                    reject(new FetchGoError('Request canceled', ERR_CANCELED, config));
+                    return;
+                }
+                config.signal.addEventListener('abort', () => {
+                    req.close();
+                    session.close();
+                    reject(new FetchGoError('Request canceled', ERR_CANCELED, config));
+                }, { once: true });
+            }
+
+            req.on('response', (responseHeaders) => {
+                const status = Number(responseHeaders[':status']) || 0;
+                const contentEncoding = responseHeaders['content-encoding'] as string | undefined;
+                const contentType = (responseHeaders['content-type'] as string) || '';
+                const total = parseInt((responseHeaders['content-length'] as string) || '0', 10) || undefined;
+
+                let stream: NodeJS.ReadableStream = req;
+                if (contentEncoding) {
+                    if (contentEncoding === 'gzip') stream = req.pipe(zlib.createGunzip());
+                    else if (contentEncoding === 'deflate') stream = req.pipe(zlib.createInflate());
+                    else if (contentEncoding === 'br') stream = req.pipe(zlib.createBrotliDecompress());
+                }
+
+                const chunks: Buffer[] = [];
+                let loaded = 0;
+                const startTime = Date.now();
+
+                stream.on('data', (chunk: Buffer) => {
+                    const bytes = chunk.length;
+                    loaded += bytes;
+
+                    if (config.maxContentLength && loaded > config.maxContentLength) {
+                        req.close();
+                        session.close();
+                        reject(new FetchGoError(
+                            `Response size (${loaded}) exceeds maxContentLength (${config.maxContentLength})`,
+                            ERR_BAD_RESPONSE,
+                            config
+                        ));
+                        return;
+                    }
+
+                    chunks.push(chunk);
+
+                    if (config.onDownloadProgress) {
+                        const elapsed = (Date.now() - startTime) / 1000;
+                        const rate = elapsed > 0 ? loaded / elapsed : 0;
+                        config.onDownloadProgress({
+                            loaded,
+                            total,
+                            progress: total ? loaded / total : undefined,
+                            bytes,
+                            rate,
+                            estimated: total && rate > 0 ? (total - loaded) / rate : undefined,
+                            download: true,
+                        });
+                    }
+                });
+
+                stream.on('end', () => {
+                    session.close();
+                    const buffer = Buffer.concat(chunks);
+                    let data: unknown;
+                    try {
+                        data = parseNodeResponse(buffer, contentType, config.responseType);
+                        if (config.transformResponse) {
+                            for (const transform of config.transformResponse) {
+                                data = transform(data);
+                            }
+                        }
+                    } catch {
+                        data = buffer.toString('utf-8');
+                    }
+
+                    const respHeaders = new Headers();
+                    for (const [key, value] of Object.entries(responseHeaders)) {
+                        if (key.startsWith(':') || !value) continue;
+                        respHeaders.set(key, Array.isArray(value) ? value.join(', ') : String(value));
+                    }
+
+                    const response: FetchGoResponse = {
+                        data,
+                        status,
+                        statusText: '',
+                        headers: respHeaders,
+                        config,
+                        request: new Response(null) as Response,
+                    };
+
+                    const validateStatus = config.validateStatus || defaultValidateStatus;
+                    if (!validateStatus(response.status)) {
+                        reject(new FetchGoError(
+                            `Request failed with status code ${response.status}`,
+                            response.status >= 400 && response.status < 500 ? ERR_BAD_REQUEST : ERR_BAD_RESPONSE,
+                            config,
+                            response
+                        ));
+                        return;
+                    }
+                    resolve(response);
+                });
+
+                stream.on('error', (err: Error) => {
+                    session.close();
+                    reject(new FetchGoError(err.message, ERR_NETWORK, config));
+                });
+            });
+
+            if (preparedBody !== undefined && !['GET', 'HEAD'].includes(h2Headers[':method'] as string)) {
+                req.end(preparedBody);
+            } else {
+                req.end();
+            }
+        });
+    }
+
+    // ── HTTP/1.1 path ──
     return new Promise<FetchGoResponse>((resolve, reject) => {
         let redirectCount = 0;
 

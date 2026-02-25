@@ -91,6 +91,7 @@ export interface FetchGoRequestConfig<D = unknown> {
     beforeRedirect?: (options: Record<string, unknown>, responseDetails: { headers: Record<string, string> }) => void;
     allowAbsoluteUrls?: boolean;
     maxRate?: number | [number, number];
+    httpVersion?: 1 | 2;
 }
 
 export interface FetchGoResponse<T = unknown> {
