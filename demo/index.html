@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fetch-Go — Lightweight Axios-compatible HTTP client</title>
+    <meta name="description"
+        content="Promise based HTTP client for the browser and node.js. Drop-in Axios replacement built on native fetch() with HTTP/2 support, interceptors, retry, and rate limiting. ~6KB gzipped.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #1e2a4a;
+            --bg-code: #0f1629;
+            --text-primary: #e8e8f0;
+            --text-secondary: #a0a0c0;
+            --text-muted: #6b6b8d;
+            --accent: #6c5ce7;
+            --accent-light: #a29bfe;
+            --accent-glow: rgba(108, 92, 231, 0.15);
+            --border: rgba(108, 92, 231, 0.2);
+            --green: #00cec9;
+            --red: #ff6b6b;
+            --yellow: #feca57;
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── Nav ── */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 100;
+            background: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            padding: 0 2rem;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-logo {
+            font-size: 1.3rem;
+            font-weight: 800;
+            letter-spacing: 0.15em;
+            color: var(--accent-light);
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-primary);
+        }
+
+        .nav-btn {
+            background: var(--accent);
+            color: #fff;
+            padding: 0.5rem 1.25rem;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-decoration: none;
+            transition: opacity 0.2s;
+        }
+
+        .nav-btn:hover {
+            opacity: 0.85;
+        }
+
+        /* ── Hero ── */
+        .hero {
+            padding: 10rem 2rem 6rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+        }
+
+        .hero h1 {
+            font-size: 2.8rem;
+            font-weight: 800;
+            line-height: 1.2;
+            color: var(--text-primary);
+            margin-bottom: 1.25rem;
+        }
+
+        .hero p {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            max-width: 480px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+            color: #fff;
+            padding: 0.75rem 2rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(108, 92, 231, 0.4);
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--accent-light);
+            padding: 0.75rem 2rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            text-decoration: none;
+            border: 1.5px solid var(--border);
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        .btn-outline:hover {
+            border-color: var(--accent);
+            background: var(--accent-glow);
+        }
+
+        .hero-code {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.75rem;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            line-height: 1.8;
+            overflow-x: auto;
+        }
+
+        .hero-code .kw {
+            color: #c792ea;
+        }
+
+        .hero-code .fn {
+            color: #82aaff;
+        }
+
+        .hero-code .str {
+            color: #c3e88d;
+        }
+
+        .hero-code .cm {
+            color: var(--text-muted);
+        }
+
+        .hero-code .var {
+            color: #89ddff;
+        }
+
+        /* ── Sections ── */
+        section {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+        }
+
+        section h2 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
+        }
+
+        /* ── Features ── */
+        .features-section {
+            max-width: 1200px;
+            padding: 3rem 2rem 5rem;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.5rem;
+            transition: border-color 0.2s, transform 0.2s;
+        }
+
+        .feature-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .feature-card h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .feature-card p {
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .feature-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--accent-glow);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 0.75rem;
+            color: var(--accent-light);
+            font-size: 1.1rem;
+        }
+
+        .feature-card .badge {
+            display: inline-block;
+            background: rgba(0, 206, 201, 0.15);
+            color: var(--green);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.15em 0.5em;
+            border-radius: 4px;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+
+        /* ── Feature list ── */
+        .feature-list {
+            list-style: none;
+            columns: 2;
+            gap: 1.5rem;
+        }
+
+        .feature-list li {
+            padding: 0.4rem 0;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            break-inside: avoid;
+        }
+
+        .feature-list li::before {
+            content: '✓';
+            color: var(--green);
+            font-weight: 700;
+            margin-right: 0.5rem;
+        }
+
+        .feature-list code {
+            font-family: var(--font-mono);
+            font-size: 0.82em;
+            background: var(--bg-code);
+            padding: 0.15em 0.45em;
+            border-radius: 4px;
+            color: var(--accent-light);
+        }
+
+        /* ── Code blocks ── */
+        pre {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.25rem 1.5rem;
+            overflow-x: auto;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.7;
+            margin: 1rem 0 2rem;
+        }
+
+        code {
+            font-family: var(--font-mono);
+        }
+
+        pre .kw {
+            color: #c792ea;
+        }
+
+        pre .fn {
+            color: #82aaff;
+        }
+
+        pre .str {
+            color: #c3e88d;
+        }
+
+        pre .cm {
+            color: var(--text-muted);
+        }
+
+        pre .num {
+            color: #f78c6c;
+        }
+
+        pre .var {
+            color: #89ddff;
+        }
+
+        pre .op {
+            color: #89ddff;
+        }
+
+        /* ── Install ── */
+        .install-block {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            font-family: var(--font-mono);
+            font-size: 0.95rem;
+            margin: 1rem 0 2.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .install-block .dollar {
+            color: var(--text-muted);
+            margin-right: 0.75rem;
+        }
+
+        .install-block .cmd {
+            color: var(--green);
+        }
+
+        .install-block .pkg {
+            color: var(--text-primary);
+        }
+
+        .copy-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            font-family: var(--font-sans);
+            transition: color 0.2s, border-color 0.2s;
+        }
+
+        .copy-btn:hover {
+            color: var(--text-primary);
+            border-color: var(--accent);
+        }
+
+        /* ── Comparison ── */
+        .comparison-table {
+            width: 100%;
+            margin: 1rem 0 2rem;
+        }
+
+        .comparison-table table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .comparison-table th {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            border-bottom: 2px solid var(--border);
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .comparison-table td {
+            padding: 0.65rem 1rem;
+            border-bottom: 1px solid rgba(108, 92, 231, 0.08);
+            color: var(--text-secondary);
+        }
+
+        .comparison-table tr:hover td {
+            background: var(--accent-glow);
+        }
+
+        .comparison-table .yes {
+            color: var(--green);
+        }
+
+        .comparison-table .no {
+            color: var(--red);
+            opacity: 0.7;
+        }
+
+        .comparison-table .fetchgo-col {
+            color: var(--accent-light);
+            font-weight: 600;
+        }
+
+        /* ── Footer ── */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        footer a {
+            color: var(--accent-light);
+            text-decoration: none;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 768px) {
+            .hero {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+                padding: 8rem 1.5rem 3rem;
+            }
+
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .feature-list {
+                columns: 1;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav>
+        <a href="#" class="nav-logo">FETCH-GO</a>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#comparison">Comparison</a>
+            <a href="docs.html">Docs</a>
+            <a href="#install">Install</a>
+            <a href="#examples">Examples</a>
+            <a href="https://github.com/namecloudz/Fetch-Go" class="nav-btn">GitHub</a>
+        </div>
+    </nav>
+
+    <!-- ── Hero ── -->
+    <div class="hero">
+        <div>
+            <h1>Promise based HTTP client for the browser and node.js</h1>
+            <p>Fetch-Go is a lightweight, Axios-compatible HTTP client built on native <code>fetch()</code> with HTTP/2
+                support, smart interceptors, and built-in retry. Drop-in replacement in a ~6KB package.</p>
+            <div class="hero-buttons">
+                <a href="#install" class="btn-primary">Get Started</a>
+                <a href="https://github.com/namecloudz/Fetch-Go" class="btn-outline">View on GitHub</a>
+            </div>
+        </div>
+        <div class="hero-code">
+            <span class="kw">import</span> fetchgo <span class="kw">from</span> <span
+                class="str">'fetch-go'</span>;<br><br>
+            <span class="cm">// Auto-detects Node.js vs Browser</span><br>
+            <span class="kw">const</span> { data } = <span class="kw">await</span> fetchgo.<span
+                class="fn">get</span>(<span class="str">'/users'</span>);<br>
+            <span class="cm">// data is auto-parsed JSON</span>
+        </div>
+    </div>
+
+    <!-- ── Features Grid ── -->
+    <section class="features-section" id="features">
+        <h2>Features</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">→</div>
+                <h3>Browser &amp; Node.js<span class="badge">AUTO</span></h3>
+                <p>Auto-detects environment: native <code>fetch()</code> in browsers, <code>http/https</code> adapter in
+                    Node.js. No manual config needed.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⟳</div>
+                <h3>Smart Interceptors<span class="badge">NEW</span></h3>
+                <p>Intercept requests and responses with <code>runWhen</code> conditional filtering and
+                    <code>synchronous</code> mode for zero-overhead processing.
+                </p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">↻</div>
+                <h3>Retry Built-in</h3>
+                <p>Exponential backoff retry with configurable delays, status codes, and custom conditions. No plugins
+                    needed.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">{}</div>
+                <h3>Auto JSON</h3>
+                <p>Automatically serializes request bodies and parses JSON responses. Zero boilerplate.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⊘</div>
+                <h3>Cancellation</h3>
+                <p>Native <code>AbortController</code> support. No deprecated <code>CancelToken</code> — just standard
+                    APIs.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">◎</div>
+                <h3>TypeScript First</h3>
+                <p>Full generic support. <code>get&lt;User[]&gt;('/users')</code> returns properly typed data.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⇅</div>
+                <h3>Advanced Forms<span class="badge">NEW</span></h3>
+                <p>Auto-convert to <code>FormData</code> or <code>URLSearchParams</code> with <code>dots</code>,
+                    <code>indexes</code>, and <code>metaTokens</code> options.
+                </p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔒</div>
+                <h3>XSRF Protection</h3>
+                <p>Reads XSRF tokens from cookies and sends them as headers automatically.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">↕</div>
+                <h3>Progress + Rate Limit<span class="badge">NEW</span></h3>
+                <p>Upload/download progress events with <code>maxRate</code> throttling for bandwidth control.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+                <h3>HTTP/2</h3>
+                <p>Native HTTP/2 support in Node.js via <code>httpVersion: 2</code>. Multiplexed streams with full
+                    feature support.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📋</div>
+                <h3>Per-Method Headers<span class="badge">NEW</span></h3>
+                <p>Set default headers per method: <code>common</code>, <code>get</code>, <code>post</code>, etc. Just
+                    like Axios.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⚙</div>
+                <h3>Transitional<span class="badge">NEW</span></h3>
+                <p><code>silentJSONParsing</code>, <code>forcedJSONParsing</code>, <code>clarifyTimeoutError</code> for
+                    fine control.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔑</div>
+                <h3>Basic Auth</h3>
+                <p>Built-in <code>auth</code> config for HTTP Basic Auth. Auto-encodes to <code>Authorization</code>
+                    header.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🌐</div>
+                <h3>Proxy Support</h3>
+                <p>Node.js proxy with auth, plus custom <code>httpAgent</code>/<code>httpsAgent</code> and
+                    <code>socketPath</code>.
+                </p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔗</div>
+                <h3>Static Helpers<span class="badge">NEW</span></h3>
+                <p><code>all()</code>, <code>spread()</code>, <code>isCancel()</code> — full Axios-compatible utility
+                    methods.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Full Feature List ── -->
+    <section>
+        <h2>All Features</h2>
+        <ul class="feature-list">
+            <li>Make <code>fetch()</code> requests from the browser</li>
+            <li>Make <code>http</code> requests from Node.js</li>
+            <li>Auto environment detection</li>
+            <li>Supports the Promise API</li>
+            <li>Intercept request and response</li>
+            <li>Conditional interceptors (<code>runWhen</code>)</li>
+            <li>Synchronous interceptors</li>
+            <li>Transform request and response data</li>
+            <li>Cancel requests via <code>AbortController</code></li>
+            <li>Timeouts with native <code>AbortSignal</code></li>
+            <li>Query parameter serialization</li>
+            <li>Automatic JSON serialization</li>
+            <li>Automatic <code>multipart/form-data</code> serialization</li>
+            <li>Automatic <code>x-www-form-urlencoded</code> serialization</li>
+            <li>Advanced FormData (<code>dots</code>, <code>indexes</code>, <code>metaTokens</code>)</li>
+            <li>Client-side XSRF protection</li>
+            <li>Upload and download progress tracking</li>
+            <li>Rate limiting (<code>maxRate</code>)</li>
+            <li>Max content length / body length limits</li>
+            <li>Configurable max redirects</li>
+            <li>Exponential backoff retry</li>
+            <li>Per-method default headers</li>
+            <li>Transitional options</li>
+            <li>Config <code>env</code> for polyfill injection</li>
+            <li>Custom adapter support</li>
+            <li>First-class TypeScript generics</li>
+            <li>HTTP/2 support (<code>httpVersion: 2</code>)</li>
+            <li>Basic Auth (<code>auth</code> config)</li>
+            <li>Proxy support (Node.js)</li>
+            <li><code>httpAgent</code> / <code>httpsAgent</code></li>
+            <li><code>postForm</code> / <code>putForm</code> / <code>patchForm</code></li>
+            <li><code>all()</code> / <code>spread()</code> / <code>isCancel()</code></li>
+            <li><code>getUri()</code> / <code>toFormData()</code> / <code>formToJSON()</code></li>
+            <li><code>beforeRedirect</code> hook</li>
+            <li><code>socketPath</code> for Unix sockets</li>
+            <li><code>responseType: 'document'</code></li>
+        </ul>
+    </section>
+
+    <!-- ── Comparison ── -->
+    <section id="comparison">
+        <h2>Comparison</h2>
+        <div class="comparison-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>fetch()</th>
+                        <th>Axios</th>
+                        <th>Fetch-Go</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Bundle size</td>
+                        <td>0KB</td>
+                        <td>~13KB</td>
+                        <td class="fetchgo-col">~6KB</td>
+                    </tr>
+                    <tr>
+                        <td>Auto JSON</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓</td>
+                    </tr>
+                    <tr>
+                        <td>Error on 4xx/5xx</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓</td>
+                    </tr>
+                    <tr>
+                        <td>Timeout</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓ native</td>
+                    </tr>
+                    <tr>
+                        <td>Interceptors</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓ runWhen</td>
+                    </tr>
+                    <tr>
+                        <td>Retry</td>
+                        <td class="no">✗</td>
+                        <td class="no">✗ plugin</td>
+                        <td class="fetchgo-col">✓ built-in</td>
+                    </tr>
+                    <tr>
+                        <td>Cancel</td>
+                        <td>Manual</td>
+                        <td>CancelToken ⚠️</td>
+                        <td class="fetchgo-col">✓ AbortController</td>
+                    </tr>
+                    <tr>
+                        <td>Form serialization</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓ advanced</td>
+                    </tr>
+                    <tr>
+                        <td>XSRF protection</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓</td>
+                    </tr>
+                    <tr>
+                        <td>Upload progress</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓ stream</td>
+                    </tr>
+                    <tr>
+                        <td>Rate limiting</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓ maxRate</td>
+                    </tr>
+                    <tr>
+                        <td>Per-method headers</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓</td>
+                    </tr>
+                    <tr>
+                        <td>Env auto-detect</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓</td>
+                    </tr>
+                    <tr>
+                        <td>Transitional</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓</td>
+                    </tr>
+                    <tr>
+                        <td>Max redirects</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓</td>
+                    </tr>
+                    <tr>
+                        <td>Node.js adapter</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓ default</td>
+                        <td class="fetchgo-col">✓ auto</td>
+                    </tr>
+                    <tr>
+                        <td>TypeScript</td>
+                        <td>Manual</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓ generics</td>
+                    </tr>
+                    <tr>
+                        <td>HTTP/2</td>
+                        <td class="no">✗</td>
+                        <td class="no">✗</td>
+                        <td class="fetchgo-col">✓ native</td>
+                    </tr>
+                    <tr>
+                        <td>Basic Auth</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓</td>
+                    </tr>
+                    <tr>
+                        <td>Proxy</td>
+                        <td class="no">✗</td>
+                        <td class="yes">✓</td>
+                        <td class="fetchgo-col">✓</td>
+                    </tr>
+                    <tr>
+                        <td>Based on</td>
+                        <td>—</td>
+                        <td>XMLHttpRequest</td>
+                        <td class="fetchgo-col">native fetch()</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ── Install ── -->
+    <section id="install">
+        <h2>Installing</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 0.5rem;">Using npm:</p>
+        <div class="install-block">
+            <div>
+                <span class="dollar">$</span>
+                <span class="cmd">npm install</span>
+                <span class="pkg">fetch-go</span>
+            </div>
+            <button class="copy-btn"
+                onclick="navigator.clipboard.writeText('npm install fetch-go');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)">Copy</button>
+        </div>
+        <p style="color: var(--text-secondary); margin-bottom: 0.5rem;">Using yarn:</p>
+        <div class="install-block">
+            <div>
+                <span class="dollar">$</span>
+                <span class="cmd">yarn add</span>
+                <span class="pkg">fetch-go</span>
+            </div>
+            <button class="copy-btn"
+                onclick="navigator.clipboard.writeText('yarn add fetch-go');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)">Copy</button>
+        </div>
+    </section>
+
+    <!-- ── Examples ── -->
+    <section id="examples">
+        <h2>Examples</h2>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary);">GET request</h3>
+        <pre><span class="kw">import</span> fetchgo <span class="kw">from</span> <span class="str">'fetch-go'</span>;
+
+<span class="cm">// GET with typed response</span>
+<span class="kw">const</span> { data } = <span class="kw">await</span> fetchgo.<span class="fn">get</span>&lt;User[]&gt;(<span class="str">'/api/users'</span>);
+
+<span class="cm">// With query params</span>
+<span class="kw">const</span> { data } = <span class="kw">await</span> fetchgo.<span class="fn">get</span>(<span class="str">'/api/users'</span>, {
+  params: { page: <span class="num">1</span>, limit: <span class="num">10</span> }
+});</pre>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary);">POST request</h3>
+        <pre><span class="kw">const</span> { data } = <span class="kw">await</span> fetchgo.<span class="fn">post</span>(<span class="str">'/api/users'</span>, {
+  name: <span class="str">'John'</span>,
+  email: <span class="str">'john@example.com'</span>
+});</pre>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary);">Per-method headers</h3>
+        <pre><span class="kw">const</span> api = fetchgo.<span class="fn">create</span>({
+  baseURL: <span class="str">'https://api.example.com'</span>,
+  headers: {
+    common: { <span class="str">'Accept'</span>: <span class="str">'application/json'</span> },
+    get:    { <span class="str">'Cache-Control'</span>: <span class="str">'no-cache'</span> },
+    post:   { <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span> },
+  }
+});</pre>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary);">Smart Interceptors</h3>
+        <pre>api.interceptors.request.<span class="fn">use</span>(
+  (config) <span class="op">=></span> {
+    config.headers[<span class="str">'X-Auth'</span>] = <span class="fn">getToken</span>();
+    <span class="kw">return</span> config;
+  },
+  <span class="kw">undefined</span>,
+  {
+    <span class="cm">// Only run for /api/ routes</span>
+    runWhen: (config) <span class="op">=></span> config.url?.startsWith(<span class="str">'/api/'</span>),
+    <span class="cm">// Run synchronously (no await)</span>
+    synchronous: <span class="kw">true</span>,
+  }
+);</pre>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary);">Rate Limiting</h3>
+        <pre><span class="cm">// Limit download to 100 KB/s</span>
+<span class="kw">await</span> fetchgo.<span class="fn">get</span>(<span class="str">'/large-file'</span>, {
+  maxRate: <span class="num">100</span> * <span class="num">1024</span>,
+  onDownloadProgress: (e) <span class="op">=></span> {
+    console.<span class="fn">log</span>(<span class="str">`${</span>Math.<span class="fn">round</span>(e.progress * <span class="num">100</span>)<span class="str">}%`</span>);
+  }
+});
+
+<span class="cm">// Separate upload/download rates</span>
+<span class="kw">await</span> fetchgo.<span class="fn">post</span>(<span class="str">'/upload'</span>, file, {
+  maxRate: [<span class="num">50</span> * <span class="num">1024</span>, <span class="num">200</span> * <span class="num">1024</span>], <span class="cm">// [upload, download]</span>
+});</pre>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary);">Advanced FormData</h3>
+        <pre><span class="kw">import</span> { toFormData } <span class="kw">from</span> <span class="str">'fetch-go'</span>;
+
+<span class="cm">// Dot notation for nested keys</span>
+toFormData({ user: { name: <span class="str">'John'</span> } }, <span class="kw">undefined</span>, { dots: <span class="kw">true</span> });
+<span class="cm">// → user.name = 'John'</span>
+
+<span class="cm">// Array index modes</span>
+toFormData({ tags: [<span class="str">'a'</span>, <span class="str">'b'</span>] }, <span class="kw">undefined</span>, { indexes: <span class="kw">true</span> });
+<span class="cm">// → tags[0]=a, tags[1]=b</span></pre>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary);">Parallel Requests</h3>
+        <pre><span class="cm">// fetchgo.all() + fetchgo.spread()</span>
+<span class="kw">const</span> [users, posts] = <span class="kw">await</span> fetchgo.<span class="fn">all</span>([
+  fetchgo.<span class="fn">get</span>(<span class="str">'/api/users'</span>),
+  fetchgo.<span class="fn">get</span>(<span class="str">'/api/posts'</span>),
+]);</pre>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary);">Transitional Options</h3>
+        <pre><span class="kw">const</span> api = fetchgo.<span class="fn">create</span>({
+  transitional: {
+    silentJSONParsing: <span class="kw">true</span>,    <span class="cm">// Don't throw on bad JSON</span>
+    forcedJSONParsing: <span class="kw">false</span>,   <span class="cm">// Force JSON parse</span>
+    clarifyTimeoutError: <span class="kw">true</span>, <span class="cm">// ETIMEDOUT code</span>
+  }
+});</pre>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary);">Error Handling</h3>
+        <pre><span class="kw">import</span> { FetchGoError, isCancel } <span class="kw">from</span> <span class="str">'fetch-go'</span>;
+
+<span class="kw">try</span> {
+  <span class="kw">await</span> api.<span class="fn">get</span>(<span class="str">'/might-fail'</span>);
+} <span class="kw">catch</span> (error) {
+  <span class="kw">if</span> (fetchgo.<span class="fn">isCancel</span>(error)) {
+    console.<span class="fn">log</span>(<span class="str">'Cancelled!'</span>);
+  } <span class="kw">else if</span> (error <span class="kw">instanceof</span> FetchGoError) {
+    console.<span class="fn">log</span>(error.status);       <span class="cm">// 404</span>
+    console.<span class="fn">log</span>(error.response?.data);<span class="cm">// { message: "Not Found" }</span>
+    console.<span class="fn">log</span>(error.code);         <span class="cm">// "ERR_BAD_REQUEST"</span>
+  }
+}</pre>
+
+        <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-secondary);">Migrate from Axios</h3>
+        <pre><span class="cm">// Just change the import — everything else works!</span>
+<span class="no">- import axios from 'axios';</span>
+<span class="yes">+ import fetchgo from 'fetch-go';</span>
+
+<span class="no">- const api = axios.create({ baseURL: '...' });</span>
+<span class="yes">+ const api = fetchgo.create({ baseURL: '...' });</span>
+
+<span class="kw">const</span> { data } = <span class="kw">await</span> api.<span class="fn">get</span>(<span class="str">'/users'</span>);</pre>
+    </section>
+
+    <footer>
+        <p>MIT © 2025 — <a href="https://github.com/namecloudz/Fetch-Go">Fetch-Go</a></p>
+    </footer>
+
+</body>
+
+</html>
