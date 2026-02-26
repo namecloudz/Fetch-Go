@@ -3,6 +3,7 @@ import { FetchGoError, ERR_NETWORK, ERR_TIMEOUT, ERR_CANCELED, ERR_BAD_REQUEST, 
 import { buildURL } from '../helpers/buildURL.js';
 import { isPlainObject, isFormData, isURLSearchParams, isBlob, isArrayBuffer, isStream, getCookie, objectToFormData, objectToURLSearchParams } from '../helpers/utils.js';
 import { httpAdapter } from '../adapters/http.js';
+import { xhrAdapter, supportsRequestStreams } from '../adapters/xhr.js';
 import { createThrottledStream } from '../helpers/throttle.js';
 
 const ERR_ETIMEDOUT = 'ETIMEDOUT';
@@ -514,6 +515,7 @@ function selectAdapter(config: FetchGoRequestConfig): (config: FetchGoRequestCon
     if (config.adapter) {
         if (typeof config.adapter === 'function') return config.adapter;
         if (config.adapter === 'http') return httpAdapter;
+        if (config.adapter === 'xhr') return xhrAdapter;
         if (config.adapter === 'fetch') return executeFetch;
         return executeFetch;
     }
@@ -521,6 +523,12 @@ function selectAdapter(config: FetchGoRequestConfig): (config: FetchGoRequestCon
     // Auto-detect: use httpAdapter on Node.js for full feature support
     if (isNodeEnvironment()) {
         return httpAdapter;
+    }
+
+    // Browser: fall back to XHR when upload progress is needed
+    // and browser doesn't support ReadableStream as request body (Safari)
+    if (config.onUploadProgress && !supportsRequestStreams()) {
+        return xhrAdapter;
     }
 
     return executeFetch;

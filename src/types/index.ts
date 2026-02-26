@@ -47,7 +47,7 @@ export interface ProxyConfig {
     auth?: AuthConfig;
 }
 
-export type Adapter = 'fetch' | 'http' | ((config: FetchGoRequestConfig) => Promise<FetchGoResponse>);
+export type Adapter = 'fetch' | 'http' | 'xhr' | ((config: FetchGoRequestConfig) => Promise<FetchGoResponse>);
 
 // ── Interceptor Options ──────────────────────────────────────
 export interface InterceptorOptions<V = unknown> {

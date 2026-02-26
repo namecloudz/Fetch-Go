@@ -6,6 +6,7 @@ export { FetchGoError, isFetchGoError, isCancel, ERR_CANCELED, ERR_NETWORK, ERR_
 export { InterceptorManager } from './core/InterceptorManager.js';
 export { buildURL } from './helpers/buildURL.js';
 export { httpAdapter } from './adapters/http.js';
+export { xhrAdapter, supportsRequestStreams } from './adapters/xhr.js';
 export { toFormData, formToJSON } from './helpers/utils.js';
 export { createThrottledStream } from './helpers/throttle.js';
 
