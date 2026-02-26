@@ -1,54 +1,9 @@
 import type { FetchGoRequestConfig, FetchGoResponse } from '../types/index.js';
 import { InterceptorManager } from './InterceptorManager.js';
-import { mergeConfig } from './mergeConfig.js';
+import { mergeConfig, flattenMethodHeaders } from './mergeConfig.js';
 import { dispatchRequest } from './dispatchRequest.js';
 import { buildURL } from '../helpers/buildURL.js';
 import { isCancel } from '../error/FetchGoError.js';
-import { normalizeHeaders } from '../helpers/utils.js';
-
-const METHOD_HEADER_KEYS = new Set<string>(['common', 'get', 'post', 'put', 'patch', 'delete', 'head', 'options']);
-
-function flattenHeaders(
-    headers: FetchGoRequestConfig['headers'],
-    method: string
-): Record<string, string> {
-    if (!headers) return {};
-
-    // If it's Headers or [string, string][] — normalize directly
-    if (headers instanceof Headers || Array.isArray(headers)) {
-        return normalizeHeaders(headers);
-    }
-
-    // Check if this is a MethodHeaders object (has common/get/post etc.)
-    const hasMethodKeys = Object.keys(headers).some(k => METHOD_HEADER_KEYS.has(k.toLowerCase()));
-
-    if (!hasMethodKeys) {
-        return normalizeHeaders(headers as Record<string, string>);
-    }
-
-    const result: Record<string, string> = {};
-    const methodHeaders = headers as Record<string, unknown>;
-
-    // 1. Start with common headers
-    if (methodHeaders.common && typeof methodHeaders.common === 'object') {
-        Object.assign(result, methodHeaders.common);
-    }
-
-    // 2. Add method-specific headers
-    const lowerMethod = method.toLowerCase();
-    if (methodHeaders[lowerMethod] && typeof methodHeaders[lowerMethod] === 'object') {
-        Object.assign(result, methodHeaders[lowerMethod] as Record<string, string>);
-    }
-
-    // 3. Add non-method-key headers (flat headers mixed in)
-    for (const [key, value] of Object.entries(methodHeaders)) {
-        if (!METHOD_HEADER_KEYS.has(key.toLowerCase()) && typeof value === 'string') {
-            result[key] = value;
-        }
-    }
-
-    return normalizeHeaders(result);
-}
 
 export class FetchGo {
     defaults: FetchGoRequestConfig;
@@ -57,6 +12,10 @@ export class FetchGo {
         request: InterceptorManager<FetchGoRequestConfig>;
         response: InterceptorManager<FetchGoResponse>;
     };
+
+    // Cache: track if interceptors exist to skip chain processing
+    private _hasRequestInterceptors = false;
+    private _hasResponseInterceptors = false;
 
     constructor(config: FetchGoRequestConfig = {}) {
         this.defaults = config;
@@ -73,147 +32,138 @@ export class FetchGo {
         let config: FetchGoRequestConfig;
 
         if (typeof configOrUrl === 'string') {
-            config = mergeConfig(this.defaults, { ...overrides, url: configOrUrl });
+            if (overrides) {
+                overrides.url = configOrUrl;
+                config = mergeConfig(this.defaults, overrides);
+            } else {
+                config = mergeConfig(this.defaults, { url: configOrUrl });
+            }
         } else {
             config = mergeConfig(this.defaults, configOrUrl);
         }
 
-        // Flatten per-method headers before dispatching
+        // Flatten per-method headers — single pass
         const method = (config.method || 'GET').toUpperCase();
-        config.headers = flattenHeaders(config.headers, method);
+        config.headers = flattenMethodHeaders(config.headers, method);
 
-        type ChainItem = {
-            fulfilled: (value: unknown) => unknown | Promise<unknown>;
-            rejected?: (error: unknown) => unknown;
-            runWhen?: (value: unknown) => boolean;
-            synchronous?: boolean;
-        };
+        // Fast path: no interceptors (most common case)
+        if (!this._hasRequestInterceptors && !this._hasResponseInterceptors) {
+            return (await dispatchRequest(config)) as FetchGoResponse<T>;
+        }
 
-        // Check if all request interceptors are synchronous
-        let requestInterceptorsSynchronous = true;
-        const requestChain: ChainItem[] = [];
-        this.interceptors.request.forEach((handler) => {
-            if (handler.synchronous !== true) {
-                requestInterceptorsSynchronous = false;
-            }
-            requestChain.unshift(handler as ChainItem);
-        });
-
-        const responseChain: ChainItem[] = [];
-        this.interceptors.response.forEach((handler) => {
-            responseChain.push(handler as ChainItem);
-        });
-
-        // Filter by runWhen
-        const activeRequestChain = requestChain.filter(item => {
-            if (item.runWhen && typeof item.runWhen === 'function') {
-                return item.runWhen(config);
-            }
-            return true;
-        });
-
+        // Process request interceptors
         let currentConfig = config;
+        if (this._hasRequestInterceptors) {
+            let sync = true;
+            const chain: Array<{
+                fulfilled: (v: unknown) => unknown;
+                rejected?: (e: unknown) => unknown;
+                runWhen?: (v: unknown) => boolean;
+                synchronous?: boolean;
+            }> = [];
 
-        if (requestInterceptorsSynchronous) {
-            // Run request interceptors synchronously (no await)
-            for (const { fulfilled, rejected } of activeRequestChain) {
+            this.interceptors.request.forEach((h) => {
+                if (!h.synchronous) sync = false;
+                chain.unshift(h as typeof chain[0]);
+            });
+
+            for (const { fulfilled, rejected, runWhen } of chain) {
+                if (runWhen && !runWhen(currentConfig)) continue;
                 try {
-                    currentConfig = fulfilled(currentConfig) as FetchGoRequestConfig;
-                } catch (error) {
+                    currentConfig = (sync ? fulfilled(currentConfig) : await fulfilled(currentConfig)) as FetchGoRequestConfig;
+                } catch (e) {
                     if (rejected) {
-                        currentConfig = rejected(error) as FetchGoRequestConfig;
-                    } else {
-                        throw error;
-                    }
-                }
-            }
-        } else {
-            // Run request interceptors asynchronously (default)
-            for (const { fulfilled, rejected } of activeRequestChain) {
-                try {
-                    currentConfig = (await fulfilled(currentConfig)) as FetchGoRequestConfig;
-                } catch (error) {
-                    if (rejected) {
-                        currentConfig = (await rejected(error)) as FetchGoRequestConfig;
-                    } else {
-                        throw error;
-                    }
+                        currentConfig = (sync ? rejected(e) : await rejected(e)) as FetchGoRequestConfig;
+                    } else throw e;
                 }
             }
         }
 
-        // Filter response interceptors by runWhen too
-        const activeResponseChain = responseChain.filter(item => {
-            if (item.runWhen && typeof item.runWhen === 'function') {
-                return item.runWhen(config);
-            }
-            return true;
-        });
-
+        // Dispatch
         let response: FetchGoResponse;
+        if (!this._hasResponseInterceptors) {
+            return (await dispatchRequest(currentConfig)) as FetchGoResponse<T>;
+        }
+
+        const resChain: Array<{
+            fulfilled: (v: unknown) => unknown;
+            rejected?: (e: unknown) => unknown;
+            runWhen?: (v: unknown) => boolean;
+        }> = [];
+        this.interceptors.response.forEach((h) => resChain.push(h as typeof resChain[0]));
+
         try {
             response = await dispatchRequest(currentConfig);
         } catch (error) {
-            for (const { rejected } of activeResponseChain) {
+            let err = error;
+            for (const { rejected } of resChain) {
                 if (rejected) {
                     try {
-                        const result = await rejected(error);
-                        if (result && typeof result === 'object' && 'data' in result && 'status' in result) {
-                            return result as FetchGoResponse<T>;
+                        const r = await rejected(err);
+                        if (r && typeof r === 'object' && 'data' in (r as object) && 'status' in (r as object)) {
+                            return r as FetchGoResponse<T>;
                         }
-                    } catch (interceptorError) {
-                        error = interceptorError;
-                    }
+                    } catch (e) { err = e; }
                 }
             }
-            throw error;
+            throw err;
         }
 
-        for (const { fulfilled, rejected } of activeResponseChain) {
+        for (const { fulfilled, rejected, runWhen } of resChain) {
+            if (runWhen && typeof runWhen === 'function' && !runWhen(config)) continue;
             try {
                 response = (await fulfilled(response)) as FetchGoResponse;
-            } catch (error) {
+            } catch (e) {
                 if (rejected) {
-                    const result = await rejected(error);
-                    if (result && typeof result === 'object' && 'data' in result && 'status' in result) {
-                        response = result as FetchGoResponse;
-                    }
-                } else {
-                    throw error;
-                }
+                    const r = await rejected(e);
+                    if (r && typeof r === 'object' && 'data' in (r as object)) response = r as FetchGoResponse;
+                } else throw e;
             }
         }
 
         return response as FetchGoResponse<T>;
     }
 
-
     get<T = unknown>(url: string, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
-        return this.request<T>(url, { ...config, method: 'GET' });
+        return config
+            ? this.request<T>(url, { ...config, method: 'GET' })
+            : this.request<T>(url, { method: 'GET' });
     }
 
     delete<T = unknown>(url: string, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
-        return this.request<T>(url, { ...config, method: 'DELETE' });
+        return config
+            ? this.request<T>(url, { ...config, method: 'DELETE' })
+            : this.request<T>(url, { method: 'DELETE' });
     }
 
     head<T = unknown>(url: string, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
-        return this.request<T>(url, { ...config, method: 'HEAD' });
+        return config
+            ? this.request<T>(url, { ...config, method: 'HEAD' })
+            : this.request<T>(url, { method: 'HEAD' });
     }
 
     options<T = unknown>(url: string, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
-        return this.request<T>(url, { ...config, method: 'OPTIONS' });
+        return config
+            ? this.request<T>(url, { ...config, method: 'OPTIONS' })
+            : this.request<T>(url, { method: 'OPTIONS' });
     }
 
     post<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
-        return this.request<T>(url, { ...config, method: 'POST', data });
+        return config
+            ? this.request<T>(url, { ...config, method: 'POST', data })
+            : this.request<T>(url, { method: 'POST', data });
     }
 
     put<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
-        return this.request<T>(url, { ...config, method: 'PUT', data });
+        return config
+            ? this.request<T>(url, { ...config, method: 'PUT', data })
+            : this.request<T>(url, { method: 'PUT', data });
     }
 
     patch<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
-        return this.request<T>(url, { ...config, method: 'PATCH', data });
+        return config
+            ? this.request<T>(url, { ...config, method: 'PATCH', data })
+            : this.request<T>(url, { method: 'PATCH', data });
     }
 
     postForm<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>> {
@@ -237,7 +187,6 @@ export class FetchGo {
         return new FetchGo(mergeConfig(this.defaults, config));
     }
 
-    // ── Static Helpers (Axios compat) ────────────────────────
     all<T>(promises: Promise<T>[]): Promise<T[]> {
         return Promise.all(promises);
     }

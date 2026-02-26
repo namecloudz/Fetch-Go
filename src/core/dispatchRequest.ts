@@ -1,9 +1,8 @@
 import type { FetchGoRequestConfig, FetchGoResponse, RetryConfig, FormSerializerOptions } from '../types/index.js';
 import { FetchGoError, ERR_NETWORK, ERR_TIMEOUT, ERR_CANCELED, ERR_BAD_REQUEST, ERR_BAD_RESPONSE } from '../error/FetchGoError.js';
 import { buildURL } from '../helpers/buildURL.js';
-import { normalizeHeaders, isPlainObject, isFormData, isURLSearchParams, isBlob, isArrayBuffer, isStream, getCookie, objectToFormData, objectToURLSearchParams } from '../helpers/utils.js';
+import { isPlainObject, isFormData, isURLSearchParams, isBlob, isArrayBuffer, isStream, getCookie, objectToFormData, objectToURLSearchParams } from '../helpers/utils.js';
 import { httpAdapter } from '../adapters/http.js';
-import { validateConfig } from '../helpers/validateConfig.js';
 import { createThrottledStream } from '../helpers/throttle.js';
 
 const ERR_ETIMEDOUT = 'ETIMEDOUT';
@@ -20,16 +19,14 @@ function defaultValidateStatus(status: number): boolean {
     return status >= 200 && status < 300;
 }
 
+// Pre-computed retry configs for common cases (avoid spread per-request)
+const RETRY_DISABLED: RetryConfig = { ...DEFAULT_RETRY, retries: 0 };
+const RETRY_DEFAULT: RetryConfig = { ...DEFAULT_RETRY, retries: 3 };
+
 function normalizeRetryConfig(retry?: Partial<RetryConfig> | number | boolean): RetryConfig {
-    if (retry === false || retry === undefined) {
-        return { ...DEFAULT_RETRY, retries: 0 };
-    }
-    if (retry === true) {
-        return { ...DEFAULT_RETRY, retries: 3 };
-    }
-    if (typeof retry === 'number') {
-        return { ...DEFAULT_RETRY, retries: retry };
-    }
+    if (retry === false || retry === undefined) return RETRY_DISABLED;
+    if (retry === true) return RETRY_DEFAULT;
+    if (typeof retry === 'number') return { ...DEFAULT_RETRY, retries: retry };
     return { ...DEFAULT_RETRY, ...retry };
 }
 
@@ -234,7 +231,7 @@ function getTimeoutErrorCode(config: FetchGoRequestConfig): string {
 async function executeFetch(
     config: FetchGoRequestConfig
 ): Promise<FetchGoResponse> {
-    const headers = normalizeHeaders(config.headers as Record<string, string>);
+    const headers = (config.headers || {}) as Record<string, string>;
 
     let body = config.data;
     if (config.transformRequest) {
@@ -532,7 +529,7 @@ function selectAdapter(config: FetchGoRequestConfig): (config: FetchGoRequestCon
 export async function dispatchRequest(
     config: FetchGoRequestConfig
 ): Promise<FetchGoResponse> {
-    validateConfig(config);
+
     const retryConfig = normalizeRetryConfig(config.retry);
     const method = (config.method || 'GET').toUpperCase();
     const adapter = selectAdapter(config);

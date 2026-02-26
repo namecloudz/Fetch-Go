@@ -33,6 +33,18 @@
 | TypeScript | Manual types | ✅ | ✅ **first-class generics** |
 | Based on | — | XMLHttpRequest | **native `fetch()`** |
 
+## Benchmark
+
+> Tested on Node.js v22 with a local HTTP server, 500 requests per metric.
+
+| Metric | Fetch-Go | Axios | |
+|--------|----------|-------|-|
+| Import time | 4.2ms | 160ms | **37.9x faster** |
+| Instance creation (1000×) | 0.8ms | 13.2ms | **16.7x faster** |
+| GET throughput | 7,068 req/s | 3,687 req/s | **1.9x faster** |
+| POST throughput | 8,760 req/s | 3,692 req/s | **2.4x faster** |
+| Bundle (ESM) | 21.2 KB | ~30 KB | **1.4x smaller** |
+
 ## Install
 
 ```bash
