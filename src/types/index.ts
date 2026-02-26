@@ -49,17 +49,58 @@ export interface ProxyConfig {
 
 export type Adapter = 'fetch' | 'http' | ((config: FetchGoRequestConfig) => Promise<FetchGoResponse>);
 
+// ── Interceptor Options ──────────────────────────────────────
+export interface InterceptorOptions<V = unknown> {
+    /** Only run this interceptor when condition returns true */
+    runWhen?: (value: V) => boolean;
+    /** If true, interceptor runs synchronously (no await) */
+    synchronous?: boolean;
+}
+
+// ── FormData Serializer Options ──────────────────────────────
+export interface FormSerializerOptions {
+    /** Use dot notation for nested keys: `parent.child` instead of `parent[child]` */
+    dots?: boolean;
+    /** Add type meta tokens: `{}` for objects, `[]` for arrays in key names */
+    metaTokens?: boolean;
+    /** Array index mode: true = `arr[0]`, false = `arr[]`, null = `arr` */
+    indexes?: boolean | null;
+}
+
+// ── Transitional Options ─────────────────────────────────────
+export interface TransitionalOptions {
+    /** Silently ignore JSON parsing errors (default: true) */
+    silentJSONParsing?: boolean;
+    /** Force JSON parsing regardless of content-type (default: false) */
+    forcedJSONParsing?: boolean;
+    /** Use ETIMEDOUT instead of ECONNABORTED for timeout errors (default: true) */
+    clarifyTimeoutError?: boolean;
+}
+
+// ── Env Config ───────────────────────────────────────────────
+export interface EnvConfig {
+    FormData?: typeof FormData;
+    Blob?: typeof Blob;
+}
+
+// ── Per-Method Headers ───────────────────────────────────────
+export type MethodHeadersKey = 'common' | 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head' | 'options';
+
+export type MethodHeaders = {
+    [K in MethodHeadersKey]?: Record<string, string>;
+} & Record<string, string>;
+
 export interface FetchGoRequestConfig<D = unknown> {
     baseURL?: string;
     url?: string;
     method?: Method;
-    headers?: HeadersInit;
+    headers?: HeadersInit | MethodHeaders;
     params?: Params;
     paramsSerializer?: ParamsSerializer;
     data?: D;
     timeout?: number;
     signal?: AbortSignal;
-    responseType?: 'json' | 'text' | 'blob' | 'arraybuffer' | 'formdata' | 'stream';
+    responseType?: 'json' | 'text' | 'blob' | 'arraybuffer' | 'formdata' | 'stream' | 'document';
     withCredentials?: boolean;
     retry?: Partial<RetryConfig> | number | boolean;
     validateStatus?: (status: number) => boolean;
@@ -74,7 +115,7 @@ export interface FetchGoRequestConfig<D = unknown> {
     fetchOptions?: RequestInit;
     xsrfCookieName?: string;
     xsrfHeaderName?: string;
-    formSerializer?: 'formdata' | 'urlencoded';
+    formSerializer?: 'formdata' | 'urlencoded' | FormSerializerOptions;
     maxRedirects?: number;
     onUploadProgress?: (progressEvent: FetchGoProgressEvent) => void;
     onDownloadProgress?: (progressEvent: FetchGoProgressEvent) => void;
@@ -92,6 +133,8 @@ export interface FetchGoRequestConfig<D = unknown> {
     allowAbsoluteUrls?: boolean;
     maxRate?: number | [number, number];
     httpVersion?: 1 | 2;
+    env?: EnvConfig;
+    transitional?: TransitionalOptions;
 }
 
 export interface FetchGoResponse<T = unknown> {
@@ -106,12 +149,15 @@ export interface FetchGoResponse<T = unknown> {
 export interface InterceptorHandlers<V> {
     fulfilled: (value: V) => V | Promise<V>;
     rejected?: (error: unknown) => unknown;
+    runWhen?: (value: V) => boolean;
+    synchronous?: boolean;
 }
 
 export interface InterceptorManagerInterface<V> {
     use(
         onFulfilled: (value: V) => V | Promise<V>,
-        onRejected?: (error: unknown) => unknown
+        onRejected?: (error: unknown) => unknown,
+        options?: InterceptorOptions<V>
     ): number;
     eject(id: number): void;
     clear(): void;
@@ -140,6 +186,8 @@ export interface FetchGoInstance {
     putForm<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>>;
     patchForm<T = unknown>(url: string, data?: unknown, config?: FetchGoRequestConfig): Promise<FetchGoResponse<T>>;
 
+    all<T>(promises: Promise<T>[]): Promise<T[]>;
+    spread<T, R>(callback: (...args: T[]) => R): (arr: T[]) => R;
     getUri(config?: FetchGoRequestConfig): string;
     create(config?: FetchGoRequestConfig): FetchGoInstance;
     isCancel(error: unknown): boolean;

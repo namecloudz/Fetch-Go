@@ -1,9 +1,12 @@
-import type { FetchGoRequestConfig, FetchGoResponse, RetryConfig } from '../types/index.js';
+import type { FetchGoRequestConfig, FetchGoResponse, RetryConfig, FormSerializerOptions } from '../types/index.js';
 import { FetchGoError, ERR_NETWORK, ERR_TIMEOUT, ERR_CANCELED, ERR_BAD_REQUEST, ERR_BAD_RESPONSE } from '../error/FetchGoError.js';
 import { buildURL } from '../helpers/buildURL.js';
 import { normalizeHeaders, isPlainObject, isFormData, isURLSearchParams, isBlob, isArrayBuffer, isStream, getCookie, objectToFormData, objectToURLSearchParams } from '../helpers/utils.js';
 import { httpAdapter } from '../adapters/http.js';
 import { validateConfig } from '../helpers/validateConfig.js';
+import { createThrottledStream } from '../helpers/throttle.js';
+
+const ERR_ETIMEDOUT = 'ETIMEDOUT';
 
 const DEFAULT_RETRY: RetryConfig = {
     retries: 0,
@@ -46,6 +49,14 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     });
 }
 
+function getFormSerializerOptions(config: FetchGoRequestConfig): { mode: string; options?: FormSerializerOptions } {
+    const fs = config.formSerializer;
+    if (!fs) return { mode: 'none' };
+    if (typeof fs === 'string') return { mode: fs };
+    // It's FormSerializerOptions — treat as formdata mode with options
+    return { mode: 'formdata', options: fs };
+}
+
 function prepareBody(
     data: unknown,
     headers: Record<string, string>,
@@ -66,14 +77,18 @@ function prepareBody(
 
     if (isPlainObject(data) || Array.isArray(data)) {
         const ct = headers['content-type'] || '';
-        const serializer = config.formSerializer;
+        const { mode, options } = getFormSerializerOptions(config);
 
-        if (serializer === 'formdata' || ct.includes('multipart/form-data')) {
+        if (mode === 'formdata' || ct.includes('multipart/form-data')) {
             delete headers['content-type'];
-            return objectToFormData(data as Record<string, unknown>);
+            const FD = config.env?.FormData ?? (typeof FormData !== 'undefined' ? FormData : undefined);
+            if (FD) {
+                return objectToFormData(data as Record<string, unknown>, new FD(), undefined, options);
+            }
+            return objectToFormData(data as Record<string, unknown>, undefined, undefined, options);
         }
 
-        if (serializer === 'urlencoded' || ct.includes('application/x-www-form-urlencoded')) {
+        if (mode === 'urlencoded' || ct.includes('application/x-www-form-urlencoded')) {
             headers['content-type'] = 'application/x-www-form-urlencoded';
             return objectToURLSearchParams(data as Record<string, unknown>);
         }
@@ -89,9 +104,22 @@ function prepareBody(
 
 async function parseResponse(
     response: Response,
-    responseType?: string
+    responseType?: string,
+    transitional?: FetchGoRequestConfig['transitional']
 ): Promise<unknown> {
     if (responseType === 'stream') return response.body;
+
+    // Document parsing (browser only)
+    if (responseType === 'document') {
+        const text = await response.text();
+        if (typeof DOMParser !== 'undefined') {
+            const contentType = response.headers.get('content-type') || '';
+            const mimeType = contentType.includes('xml') ? 'application/xml' : 'text/html';
+            return new DOMParser().parseFromString(text, mimeType as DOMParserSupportedType);
+        }
+        return text;
+    }
+
     if (responseType) {
         switch (responseType) {
             case 'json': return response.json();
@@ -107,12 +135,15 @@ async function parseResponse(
     }
 
     const contentType = response.headers.get('content-type') || '';
+    const silentJSON = transitional?.silentJSONParsing !== false; // default true
+    const forcedJSON = transitional?.forcedJSONParsing === true;  // default false
 
-    if (contentType.includes('application/json')) {
+    if (forcedJSON || contentType.includes('application/json')) {
         try {
             return await response.json();
         } catch {
-            return null;
+            if (silentJSON) return null;
+            throw new Error('Failed to parse JSON response');
         }
     }
 
@@ -192,10 +223,18 @@ function buildAbortSignal(
     };
 }
 
+// ── Timeout error code based on transitional options ─────────
+function getTimeoutErrorCode(config: FetchGoRequestConfig): string {
+    if (config.transitional?.clarifyTimeoutError !== false) {
+        return ERR_ETIMEDOUT;
+    }
+    return ERR_TIMEOUT;
+}
+
 async function executeFetch(
     config: FetchGoRequestConfig
 ): Promise<FetchGoResponse> {
-    const headers = normalizeHeaders(config.headers);
+    const headers = normalizeHeaders(config.headers as Record<string, string>);
 
     let body = config.data;
     if (config.transformRequest) {
@@ -269,6 +308,15 @@ async function executeFetch(
             });
             (init as Record<string, unknown>).duplex = 'half';
         }
+
+        // Apply maxRate upload throttling
+        if (config.maxRate && finalBody instanceof ReadableStream) {
+            const uploadRate = Array.isArray(config.maxRate) ? config.maxRate[0] : config.maxRate;
+            if (uploadRate > 0) {
+                finalBody = createThrottledStream(finalBody, uploadRate);
+            }
+        }
+
         init.body = finalBody;
     }
 
@@ -286,6 +334,7 @@ async function executeFetch(
     let redirectCount = 0;
     let currentUrl = url;
     let currentInit = init;
+    const timeoutCode = getTimeoutErrorCode(config);
 
     try {
         rawResponse = await fetch(currentUrl, currentInit);
@@ -328,14 +377,14 @@ async function executeFetch(
                 }
                 throw new FetchGoError(
                     `Request timeout of ${config.timeout}ms exceeded`,
-                    ERR_TIMEOUT,
+                    timeoutCode,
                     config
                 );
             }
             if (error.name === 'TimeoutError') {
                 throw new FetchGoError(
                     `Request timeout of ${config.timeout}ms exceeded`,
-                    ERR_TIMEOUT,
+                    timeoutCode,
                     config
                 );
             }
@@ -351,7 +400,17 @@ async function executeFetch(
     let data: unknown;
 
     if (config.onDownloadProgress && rawResponse.body) {
-        const reader = rawResponse.body.getReader();
+        let responseStream: ReadableStream<Uint8Array> = rawResponse.body;
+
+        // Apply maxRate download throttling
+        if (config.maxRate) {
+            const downloadRate = Array.isArray(config.maxRate) ? config.maxRate[1] : config.maxRate;
+            if (downloadRate > 0) {
+                responseStream = createThrottledStream(responseStream, downloadRate);
+            }
+        }
+
+        const reader = responseStream.getReader();
         const total = parseInt(rawResponse.headers.get('content-length') || '0', 10) || undefined;
         const chunks: Uint8Array[] = [];
         let loaded = 0;
@@ -403,13 +462,13 @@ async function executeFetch(
         });
 
         try {
-            data = await parseResponse(reconstructedResponse, config.responseType);
+            data = await parseResponse(reconstructedResponse, config.responseType, config.transitional);
         } catch {
             data = new TextDecoder().decode(combined);
         }
     } else {
         try {
-            data = await parseResponse(rawResponse, config.responseType);
+            data = await parseResponse(rawResponse, config.responseType, config.transitional);
         } catch {
             data = null;
         }
@@ -445,12 +504,28 @@ async function executeFetch(
     return response;
 }
 
+// ── Environment Auto-Detection ───────────────────────────────
+function isNodeEnvironment(): boolean {
+    return (
+        typeof process !== 'undefined' &&
+        typeof process.versions !== 'undefined' &&
+        typeof process.versions.node !== 'undefined'
+    );
+}
+
 function selectAdapter(config: FetchGoRequestConfig): (config: FetchGoRequestConfig) => Promise<FetchGoResponse> {
     if (config.adapter) {
         if (typeof config.adapter === 'function') return config.adapter;
         if (config.adapter === 'http') return httpAdapter;
+        if (config.adapter === 'fetch') return executeFetch;
         return executeFetch;
     }
+
+    // Auto-detect: use httpAdapter on Node.js for full feature support
+    if (isNodeEnvironment()) {
+        return httpAdapter;
+    }
+
     return executeFetch;
 }
 

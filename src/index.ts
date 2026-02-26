@@ -7,6 +7,7 @@ export { InterceptorManager } from './core/InterceptorManager.js';
 export { buildURL } from './helpers/buildURL.js';
 export { httpAdapter } from './adapters/http.js';
 export { toFormData, formToJSON } from './helpers/utils.js';
+export { createThrottledStream } from './helpers/throttle.js';
 
 export type {
     Method,
@@ -22,6 +23,12 @@ export type {
     FetchGoInstance,
     InterceptorHandlers,
     InterceptorManagerInterface,
+    InterceptorOptions,
+    FormSerializerOptions,
+    TransitionalOptions,
+    EnvConfig,
+    MethodHeaders,
+    MethodHeadersKey,
 } from './types/index.js';
 
 const fetchgo = new FetchGo({
@@ -30,6 +37,11 @@ const fetchgo = new FetchGo({
     },
     timeout: 0,
     validateStatus: (status: number) => status >= 200 && status < 300,
+    transitional: {
+        silentJSONParsing: true,
+        forcedJSONParsing: false,
+        clarifyTimeoutError: true,
+    },
 });
 
 export default fetchgo;

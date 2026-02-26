@@ -78,11 +78,51 @@ export function getCookie(name: string): string | null {
     return match ? decodeURIComponent(match[2]) : null;
 }
 
-export function objectToFormData(obj: Record<string, unknown>, formData?: FormData, parentKey?: string): FormData {
+// ── FormData Serializer Options ──────────────────────────────
+
+export interface ObjectToFormDataOptions {
+    /** Use dot notation: `parent.child` instead of `parent[child]` */
+    dots?: boolean;
+    /** Add type meta tokens: `{}` for objects, `[]` for arrays */
+    metaTokens?: boolean;
+    /** Array index mode: true = `arr[0]`, false = `arr[]`, null/undefined = `arr` */
+    indexes?: boolean | null;
+}
+
+function buildKey(parentKey: string, key: string, options?: ObjectToFormDataOptions): string {
+    if (!parentKey) {
+        return options?.metaTokens ? `${key}{}` : key;
+    }
+    if (options?.dots) {
+        return `${parentKey}.${key}`;
+    }
+    return `${parentKey}[${key}]`;
+}
+
+function buildArrayKey(parentKey: string, index: number, options?: ObjectToFormDataOptions): string {
+    const base = options?.metaTokens && !parentKey ? `[]` : parentKey;
+    const actualKey = base || parentKey;
+
+    if (options?.indexes === true) {
+        return `${actualKey}[${index}]`;
+    }
+    if (options?.indexes === false) {
+        return `${actualKey}[]`;
+    }
+    // indexes === null or undefined → bare key
+    return actualKey;
+}
+
+export function objectToFormData(
+    obj: Record<string, unknown>,
+    formData?: FormData,
+    parentKey?: string,
+    options?: ObjectToFormDataOptions
+): FormData {
     const fd = formData || new FormData();
 
     for (const [key, value] of Object.entries(obj)) {
-        const fullKey = parentKey ? `${parentKey}[${key}]` : key;
+        const fullKey = parentKey ? buildKey(parentKey, key, options) : key;
 
         if (value === null || value === undefined) {
             continue;
@@ -90,15 +130,16 @@ export function objectToFormData(obj: Record<string, unknown>, formData?: FormDa
             fd.append(fullKey, value);
         } else if (Array.isArray(value)) {
             for (let i = 0; i < value.length; i++) {
-                const itemKey = `${fullKey}[${i}]`;
+                const itemKey = buildArrayKey(fullKey, i, options);
                 if (isPlainObject(value[i])) {
-                    objectToFormData(value[i] as Record<string, unknown>, fd, itemKey);
+                    objectToFormData(value[i] as Record<string, unknown>, fd, itemKey, options);
                 } else {
                     fd.append(itemKey, String(value[i]));
                 }
             }
         } else if (isPlainObject(value)) {
-            objectToFormData(value as Record<string, unknown>, fd, fullKey);
+            const nestedKey = options?.metaTokens ? `${fullKey}{}` : fullKey;
+            objectToFormData(value as Record<string, unknown>, fd, nestedKey, options);
         } else {
             fd.append(fullKey, String(value));
         }
@@ -127,8 +168,8 @@ export function objectToURLSearchParams(obj: Record<string, unknown>): URLSearch
     return params;
 }
 
-export function toFormData(obj: Record<string, unknown>, formData?: FormData): FormData {
-    return objectToFormData(obj, formData);
+export function toFormData(obj: Record<string, unknown>, formData?: FormData, options?: ObjectToFormDataOptions): FormData {
+    return objectToFormData(obj, formData, undefined, options);
 }
 
 export function formToJSON(formData: FormData): Record<string, unknown> {

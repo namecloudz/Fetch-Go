@@ -29,7 +29,7 @@ export function validateConfig(config: FetchGoRequestConfig): void {
     }
 
     if (config.responseType !== undefined) {
-        const valid = ['json', 'text', 'blob', 'arraybuffer', 'formdata', 'stream'];
+        const valid = ['json', 'text', 'blob', 'arraybuffer', 'formdata', 'stream', 'document'];
         if (!valid.includes(config.responseType)) {
             throw new TypeError(`'responseType' must be one of: ${valid.join(', ')}, got '${config.responseType}'`);
         }

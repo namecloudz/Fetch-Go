@@ -7,36 +7,31 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-first-blue)](https://github.com/namecloudz/Fetch-Go)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-green)](https://github.com/namecloudz/Fetch-Go)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/namecloudz/Fetch-Go/actions/workflows/ci.yml/badge.svg)](https://github.com/namecloudz/Fetch-Go/actions/workflows/ci.yml)
 
 ## Why Fetch-Go?
 
 | Feature | `fetch()` | Axios | **Fetch-Go** |
-|---------|-----------|-------|--------------| 
+|---------|-----------|-------|--------------|
 | Bundle size | 0KB | ~13KB | **~6KB** |
 | HTTP/2 support | ❌ | ❌ | ✅ |
 | Auto JSON parse | ❌ | ✅ | ✅ |
 | Error on 4xx/5xx | ❌ | ✅ | ✅ |
 | Timeout | ❌ | ✅ | ✅ (native `AbortSignal`) |
-| Interceptors | ❌ | ✅ | ✅ |
+| Interceptors | ❌ | ✅ | ✅ (with `runWhen` & `synchronous`) |
 | Retry | ❌ | ❌ plugin | ✅ built-in |
 | Cancel | Manual | CancelToken (deprecated) | ✅ native `AbortSignal` |
-| Form Serialization | ❌ | ✅ | ✅ FormData + URLSearchParams |
+| Form Serialization | ❌ | ✅ | ✅ (dots, indexes, metaTokens) |
 | XSRF Protection | ❌ | ✅ | ✅ |
 | Basic Auth | ❌ | ✅ | ✅ |
 | Proxy (Node.js) | ❌ | ✅ | ✅ |
 | Progress Events | ❌ | ✅ | ✅ |
+| Rate Limiting | ❌ | ✅ | ✅ `maxRate` |
+| Per-method Headers | ❌ | ✅ | ✅ |
+| Env Auto-detect | ❌ | ✅ | ✅ |
+| Transitional Options | ❌ | ✅ | ✅ |
 | TypeScript | Manual types | ✅ | ✅ **first-class generics** |
 | Based on | — | XMLHttpRequest | **native `fetch()`** |
-
-## Benchmark
-
-| Metric | Fetch-Go | Axios | |
-|--------|----------|-------|-|
-| Import time | 2.6ms | 134ms | 51x faster |
-| GET throughput | 63,316 req/s | 34,205 req/s | 1.85x |
-| POST throughput | 78,901 req/s | 31,322 req/s | 2.5x |
-| Instance creation | 6ms | 64ms | 10x |
-| Bundle (gzip) | 6.1KB | ~13KB | 2x smaller |
 
 ## Install
 
@@ -80,6 +75,29 @@ const api = fetchgo.create({
 const { data } = await api.get('/protected/resource');
 ```
 
+## Per-Method Default Headers
+
+Set different default headers for each HTTP method:
+
+```typescript
+const api = fetchgo.create({
+  headers: {
+    common: {
+      'Accept': 'application/json',
+    },
+    get: {
+      'Cache-Control': 'no-cache',
+    },
+    post: {
+      'Content-Type': 'application/json',
+    },
+  }
+});
+
+// GET requests include Accept + Cache-Control
+// POST requests include Accept + Content-Type
+```
+
 ## HTTP/2 Support
 
 Fetch-Go is one of the few HTTP clients that supports HTTP/2 natively in Node.js:
@@ -87,30 +105,15 @@ Fetch-Go is one of the few HTTP clients that supports HTTP/2 natively in Node.js
 ```typescript
 // HTTP/2 request
 await fetchgo.get('https://api.example.com/data', {
-  adapter: 'http',
   httpVersion: 2,
 });
 
 // HTTP/2 + Basic Auth + progress
 await fetchgo.get('https://api.example.com/large-file', {
-  adapter: 'http',
   httpVersion: 2,
   auth: { username: 'user', password: 'pass' },
   onDownloadProgress: (e) => console.log(`${Math.round((e.progress || 0) * 100)}%`),
 });
-```
-
-## Basic Auth
-
-```typescript
-await fetchgo.get('/api/protected', {
-  auth: {
-    username: 'janedoe',
-    password: 's00pers3cret'
-  }
-});
-
-// Automatically sets: Authorization: Basic amFuZWRvZTpzMDBwZXJzM2NyZXQ=
 ```
 
 ## Interceptors
@@ -140,6 +143,48 @@ api.interceptors.response.use(
 const id = api.interceptors.request.use(myInterceptor);
 api.interceptors.request.eject(id);
 ```
+
+### Conditional Interceptors (`runWhen`)
+
+Only run interceptors when a condition is met:
+
+```typescript
+api.interceptors.request.use(
+  (config) => {
+    config.headers['X-Auth'] = getToken();
+    return config;
+  },
+  undefined,
+  {
+    // Only attach auth header for requests to /api/
+    runWhen: (config) => config.url?.startsWith('/api/') ?? false
+  }
+);
+```
+
+### Synchronous Interceptors
+
+Skip the async micro-task queue for faster interceptor processing:
+
+```typescript
+api.interceptors.request.use(
+  (config) => {
+    config.headers['X-Timestamp'] = Date.now().toString();
+    return config;
+  },
+  undefined,
+  { synchronous: true }
+);
+```
+
+## Environment Auto-Detection
+
+Fetch-Go **automatically selects the best adapter** for your environment:
+
+- **Browser** → native `fetch()` adapter
+- **Node.js** → `http`/`https` adapter (full proxy, HTTP/2, socket support)
+
+No manual `adapter: 'http'` needed — it just works.
 
 ## Retry
 
@@ -171,6 +216,22 @@ fetchgo.get('/long-request', { signal: controller.signal });
 controller.abort();
 ```
 
+## Rate Limiting (`maxRate`)
+
+Throttle upload and download speed:
+
+```typescript
+// Limit both upload and download to 100 KB/s
+await fetchgo.get('/large-file', {
+  maxRate: 100 * 1024,
+});
+
+// Separate upload and download rates
+await fetchgo.post('/upload', largeFile, {
+  maxRate: [50 * 1024, 200 * 1024], // [upload, download] bytes/sec
+});
+```
+
 ## Progress Events
 
 ```typescript
@@ -199,21 +260,74 @@ await fetchgo.postForm('/upload', { name: 'John', avatar: file });
 await fetchgo.putForm('/update', { name: 'Jane', avatar: file });
 await fetchgo.patchForm('/patch', { avatar: newFile });
 
-// formSerializer option
-await fetchgo.post('/upload', { name: 'John', avatar: file }, {
-  formSerializer: 'formdata'
-});
-
 // URL-encoded
 await fetchgo.post('/login', { username: 'john', password: 'secret' }, {
   formSerializer: 'urlencoded'
 });
+```
 
-// Utility functions
+### Advanced FormData Options
+
+```typescript
 import { toFormData, formToJSON } from 'fetch-go';
 
-const fd = toFormData({ name: 'John', age: 30 });
-const obj = formToJSON(fd); // { name: 'John', age: '30' }
+// Dot notation for nested keys
+const fd = toFormData({ user: { name: 'John' } }, undefined, { dots: true });
+// → user.name = 'John'  (instead of user[name])
+
+// Array index modes
+toFormData({ tags: ['a', 'b'] }, undefined, { indexes: true });   // tags[0]=a, tags[1]=b
+toFormData({ tags: ['a', 'b'] }, undefined, { indexes: false });  // tags[]=a, tags[]=b
+toFormData({ tags: ['a', 'b'] }, undefined, { indexes: null });   // tags=a, tags=b
+
+// Meta tokens for type hints
+toFormData({ users: [{ name: 'a' }] }, undefined, { metaTokens: true });
+// → users[]{} keys
+
+// Convert FormData back to JSON
+const obj = formToJSON(fd);
+```
+
+## Transitional Options
+
+Control backward-compatible behaviors:
+
+```typescript
+const api = fetchgo.create({
+  transitional: {
+    silentJSONParsing: true,    // Don't throw on JSON parse failure (default: true)
+    forcedJSONParsing: false,   // Force JSON parse regardless of content-type (default: false)
+    clarifyTimeoutError: true,  // Use ETIMEDOUT instead of ECONNABORTED (default: true)
+  }
+});
+```
+
+## Config `env` — Polyfill Injection
+
+Inject custom FormData or Blob implementations:
+
+```typescript
+import FormData from 'form-data';
+
+await fetchgo.post('/upload', { file: stream }, {
+  env: {
+    FormData: FormData,
+  },
+  formSerializer: 'formdata',
+});
+```
+
+## Basic Auth
+
+```typescript
+await fetchgo.get('/api/protected', {
+  auth: {
+    username: 'janedoe',
+    password: 's00pers3cret'
+  }
+});
+
+// Automatically sets: Authorization: Basic amFuZWRvZTpzMDBwZXJzM2NyZXQ=
 ```
 
 ## XSRF Protection
@@ -232,7 +346,6 @@ await api.post('/api/transfer', { amount: 100 });
 
 ```typescript
 await fetchgo.get('https://api.example.com/data', {
-  adapter: 'http',
   proxy: {
     protocol: 'https',
     host: '127.0.0.1',
@@ -243,6 +356,28 @@ await fetchgo.get('https://api.example.com/data', {
     }
   }
 });
+```
+
+## Static Helpers
+
+```typescript
+// Parallel requests (like axios.all)
+const [users, posts] = await fetchgo.all([
+  fetchgo.get('/api/users'),
+  fetchgo.get('/api/posts'),
+]);
+
+// Spread helper
+fetchgo.all([fetchgo.get('/a'), fetchgo.get('/b')])
+  .then(fetchgo.spread((resA, resB) => {
+    console.log(resA.data, resB.data);
+  }));
+
+// Cancel detection
+import { isCancel } from 'fetch-go';
+if (fetchgo.isCancel(error)) {
+  console.log('Cancelled!');
+}
 ```
 
 ## Error Handling
@@ -261,18 +396,6 @@ try {
     console.log(error.code);          // "ERR_BAD_REQUEST"
   }
 }
-```
-
-## Utilities
-
-```typescript
-// Build URL without sending a request
-const url = fetchgo.getUri({
-  baseURL: 'https://api.example.com',
-  url: '/users',
-  params: { id: 1, active: true }
-});
-// → "https://api.example.com/users?id=1&active=true"
 ```
 
 ## Migrating from Axios
@@ -308,6 +431,9 @@ fetchgo.putForm(url[, data[, config]])
 fetchgo.patchForm(url[, data[, config]])
 fetchgo.create(config)
 fetchgo.getUri(config)
+fetchgo.all(promises)
+fetchgo.spread(callback)
+fetchgo.isCancel(error)
 ```
 
 ### Config Options
@@ -322,6 +448,12 @@ fetchgo.getUri(config)
 
   // Data
   headers: { 'Content-Type': 'application/json' },
+  // Or per-method headers:
+  headers: {
+    common: { 'Accept': 'application/json' },
+    get: { 'Cache-Control': 'no-cache' },
+    post: { 'Content-Type': 'application/json' },
+  },
   params: { page: 1, limit: 10 },
   data: { name: 'John' },
 
@@ -334,12 +466,12 @@ fetchgo.getUri(config)
   retry: 3,
 
   // Response
-  responseType: 'json', // 'text' | 'blob' | 'arraybuffer' | 'formdata' | 'stream'
+  responseType: 'json', // 'text' | 'blob' | 'arraybuffer' | 'formdata' | 'stream' | 'document'
   validateStatus: (status) => status < 400,
-  responseEncoding: 'utf8',
 
   // Body
-  formSerializer: 'formdata', // 'urlencoded'
+  formSerializer: 'formdata',                   // 'urlencoded' or options object:
+  formSerializer: { dots: true, indexes: true }, // advanced FormData options
   transformRequest: [(data, headers) => data],
   transformResponse: [(data) => data],
 
@@ -352,7 +484,7 @@ fetchgo.getUri(config)
   maxRedirects: 5,
   beforeRedirect: (options, { headers }) => {},
 
-  // Limits
+  // Limits & Rate
   maxContentLength: 10 * 1024 * 1024,
   maxBodyLength: 10 * 1024 * 1024,
   maxRate: [100 * 1024, 100 * 1024], // [upload, download] bytes/sec
@@ -362,8 +494,18 @@ fetchgo.getUri(config)
   onDownloadProgress: (event) => console.log(event.progress),
 
   // Adapter & Protocol
-  adapter: 'fetch', // 'http' | custom function
+  adapter: 'fetch', // 'http' | custom function (auto-detected by default)
   httpVersion: 2,   // 1 | 2 (Node.js only)
+
+  // Transitional
+  transitional: {
+    silentJSONParsing: true,
+    forcedJSONParsing: false,
+    clarifyTimeoutError: true,
+  },
+
+  // Environment
+  env: { FormData: CustomFormData },
 
   // Node.js specific
   proxy: { host: '127.0.0.1', port: 9000, auth: { username: '', password: '' } },
